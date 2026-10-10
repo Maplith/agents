@@ -31,7 +31,7 @@
     "node": ">=24"
   },
   "dependencies": {
-    "pg": "8.23.0"
+    "pg": "8.23.1"
   },
   "publishConfig": {
     "access": "public",
