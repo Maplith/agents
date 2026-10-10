@@ -1,0 +1,45 @@
+{
+  "name": "maplith-bridge",
+  "version": "1.0.0-rc.1",
+  "mcpName": "com.maplith/bridge",
+  "description": "Share a folder of data files with your AI agent over MCP, read-only and behind a token, and fill it from PostgreSQL under a read-only role.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "postgresql",
+    "postgres",
+    "read-only",
+    "csv",
+    "ai-agents"
+  ],
+  "homepage": "https://github.com/Maplith/bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Maplith/bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maplith/bridge.git"
+  },
+  "license": "Apache-2.0",
+  "author": "Maplith (https://maplith.com)",
+  "type": "module",
+  "bin": {
+    "maplith-bridge": "bridge.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "pg": "8.23.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "node --disable-warning=ExperimentalWarning scripts/build.ts",
+    "test": "npm --prefix test test",
+    "prepack": "node -e \"console.error('Publish the tarball scripts/build.ts writes (the release workflow does), never this folder.'); process.exit(1)\""
+  }
+}

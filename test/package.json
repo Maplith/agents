@@ -1,0 +1,23 @@
+{
+  "name": "maplith-bridge-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The test suite of Maplith Bridge. Its tools stay here, apart from the package: the Bridge itself has one runtime dependency, the PostgreSQL client.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "fuzz": "FUZZ_RUNS=20000 vitest run fuzz.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@types/node": "24.13.5",
+    "fast-check": "4.10.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

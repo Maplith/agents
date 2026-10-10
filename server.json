@@ -1,0 +1,68 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.maplith/bridge",
+  "title": "Maplith Bridge",
+  "description": "Share a folder of data files read-only over MCP, and fill it from PostgreSQL under a read-only role.",
+  "websiteUrl": "https://github.com/Maplith/bridge",
+  "repository": {
+    "url": "https://github.com/Maplith/bridge",
+    "source": "github"
+  },
+  "version": "1.0.0-rc.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "maplith-bridge",
+      "version": "1.0.0-rc.1",
+      "runtimeHint": "npx",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve"
+        },
+        {
+          "type": "named",
+          "name": "--dir",
+          "description": "The folder of data files to share, read-only.",
+          "isRequired": true,
+          "format": "filepath"
+        },
+        {
+          "type": "named",
+          "name": "--token-file",
+          "description": "The token file that maplith-bridge rotate-token wrote, readable by its owner only.",
+          "default": "maplith-bridge.token",
+          "format": "filepath"
+        },
+        {
+          "type": "named",
+          "name": "--port",
+          "description": "The port on 127.0.0.1 to listen on.",
+          "default": "8787",
+          "format": "number"
+        }
+      ],
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://127.0.0.1:{--port}/mcp",
+        "headers": [
+          {
+            "name": "Authorization",
+            "description": "Bearer, then the token from the token file.",
+            "value": "Bearer {token}",
+            "isRequired": true,
+            "isSecret": true,
+            "variables": {
+              "token": {
+                "description": "The token from the token file: 64 hexadecimal characters.",
+                "isRequired": true,
+                "isSecret": true
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

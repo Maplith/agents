@@ -1,0 +1,179 @@
+name: CI
+
+# Every push to main and every pull request: type checking, the tests on
+# Node.js 24, the extractor against real PostgreSQL servers, a long fuzz run,
+# a reproducible build, and the DCO sign-off on every commit of a pull
+# request. Once a week as well, so a new PostgreSQL minor or a new Node.js
+# release that changes behaviour fails here first.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Tests and types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            test/package-lock.json
+
+      - name: Install the PostgreSQL client
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
+      - name: Install the test tools
+        working-directory: test
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
+      - name: Type check
+        working-directory: test
+        run: npm run typecheck
+
+      - name: Tests
+        working-directory: test
+        run: npm test
+
+      - name: The build is reproducible
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          node --disable-warning=ExperimentalWarning scripts/build.ts --out "$RUNNER_TEMP/a"
+          node --disable-warning=ExperimentalWarning scripts/build.ts --out "$RUNNER_TEMP/b"
+          cmp "$RUNNER_TEMP"/a/*.tgz "$RUNNER_TEMP"/b/*.tgz
+          cat "$RUNNER_TEMP"/a/*.sha256
+
+  postgres:
+    name: PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # 14: the oldest supported major, which grants CREATE on schema public
+        # to PUBLIC by default. 18: the current major.
+        postgres: ['14', '18']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: ci-only-superuser
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            test/package-lock.json
+
+      - name: Install the PostgreSQL client
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
+      - name: Install the test tools
+        working-directory: test
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
+      - name: The extractor against PostgreSQL ${{ matrix.postgres }}
+        working-directory: test
+        env:
+          MAPLITH_PG_TEST_URL: postgres://postgres:ci-only-superuser@localhost:5432/postgres
+          MAPLITH_PG_TEST_MAJOR: ${{ matrix.postgres }}
+        run: |
+          # A run that skipped every test would pass in silence: the report
+          # must show every test passed and none skipped.
+          npx vitest run extract-postgres-server.test.ts --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/report.json"
+          node -e '
+            const r = require(process.argv[1]);
+            if (r.numTotalTests === 0 || r.numPassedTests !== r.numTotalTests) {
+              console.error(`expected every test to pass, got ${r.numPassedTests} of ${r.numTotalTests}`);
+              process.exit(1);
+            }
+            console.log(`${r.numPassedTests} of ${r.numTotalTests} passed`);
+          ' "$RUNNER_TEMP/report.json"
+
+  fuzz:
+    name: Fuzzing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: test/package-lock.json
+
+      - name: Install the test tools
+        working-directory: test
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
+      - name: Fuzz everything a caller sends, 20,000 runs per property
+        working-directory: test
+        run: npm run fuzz
+
+  dco:
+    name: DCO sign-off
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Every commit is signed off by its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author="$(git log -1 --format='%an <%ae>' "$c")"
+            case "$author" in *'[bot]'*) continue ;; esac
+            if ! git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$c" | grep -qxF "$author"; then
+              echo "::error::Commit $c has no Signed-off-by: $author. Run: git commit --amend -s (or git rebase --signoff)"
+              missing=1
+            fi
+          done
+          exit "$missing"

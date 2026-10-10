@@ -1,0 +1,33 @@
+version: 2
+
+# The PostgreSQL client is the one runtime dependency: each update is its own
+# pull request, reviewed on its own. The test tools and the actions are grouped.
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: npm
+    directory: /test
+    schedule:
+      interval: weekly
+    groups:
+      test-tools:
+        patterns: ['*']
+    commit-message:
+      prefix: test-deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
