@@ -199,6 +199,15 @@ describe('fuzzing: what a caller sends', () => {
 });
 
 describe('fuzzing: who is calling', () => {
+  it('reads an address with a long run of % in linear time, and drops the zone', () => {
+    const t0 = performance.now();
+    expect(normalizeAddress('%'.repeat(200_000))).toBe('');
+    expect(hopAddress('fe80::1' + '%'.repeat(200_000))).toBe('fe80::1');
+    expect(performance.now() - t0).toBeLessThan(200);
+    expect(normalizeAddress('FE80::1%eth0')).toBe('fe80::1');
+    expect(normalizeAddress('::ffff:10.0.0.1')).toBe('10.0.0.1');
+  });
+
   const proxies = addressList(['10.0.0.1', '2001:db8::1'], 'behind-proxy');
   const ip = fc.oneof(fc.ipV4(), fc.ipV6(), fc.ipV4().map((a) => `::ffff:${a}`));
   const hop = fc.oneof(ip, ip.map((a) => (a.includes(':') ? `[${a}]:443` : `${a}:51234`)), fc.string(), fc.constantFrom('unknown', '', ' ', '[]', '[::1', '1.2.3.4:x'));
