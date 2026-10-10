@@ -520,7 +520,11 @@ export function isLoopback(host: string): boolean {
 /** An address as one form: an IPv4 address mapped into IPv6 (a dual-stack
  *  socket's ::ffff:1.2.3.4) is the IPv4 address, and an IPv6 zone is dropped. */
 export function normalizeAddress(address: string): string {
-  const a = address.trim().toLowerCase().replace(/%.*$/, '');
+  const lower = address.trim().toLowerCase();
+  // Cut the zone at the first '%' by index, not by regex: /%.*$/ is
+  // quadratic on a long run of '%' in a forwarded header.
+  const zone = lower.indexOf('%');
+  const a = zone === -1 ? lower : lower.slice(0, zone);
   const mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(a);
   return mapped ? mapped[1] : a;
 }

@@ -287,7 +287,7 @@ describe('the documents', () => {
   it('name the version being released, everywhere a person copies it from', () => {
     const v = pkg.version;
     for (const f of ['README.md', 'RUNBOOK.md', 'INSTALL-WITH-YOUR-AGENT.md']) expect(read(f), f).toContain(v);
-    expect(read('CHANGELOG.md')).toMatch(new RegExp(`^## \\[${v.replace(/\./g, '\\.')}\\] - \\d{4}-\\d{2}-\\d{2}$`, 'm'));
+    expect(read('CHANGELOG.md')).toMatch(new RegExp(`^## \\[${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\] - \\d{4}-\\d{2}-\\d{2}$`, 'm'));
     const server = json('server.json');
     expect(server.name).toBe(pkg.mcpName);
     expect(server.version).toBe(v);
