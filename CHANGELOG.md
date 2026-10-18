@@ -6,6 +6,16 @@ follows [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- `glama-stdio.ts`, for MCP directories that build the repository and
+  inspect a server over stdio, such as Glama: it serves an empty folder of
+  its own with the Bridge's own server on `127.0.0.1`, behind a random token
+  that only the process holds and never shows, and relays MCP between stdin
+  and stdout and that server. It takes no argument, shares no data, and
+  removes its folder when stdin ends or on SIGTERM. It is in the repository,
+  not in the npm package. README.md, "For MCP directories", has the settings.
+
 ## [1.0.0-rc.1] - 2026-10-10
 
 The first public release candidate.
