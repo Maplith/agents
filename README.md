@@ -110,6 +110,45 @@ reply of at most 8 MB. `GET /healthz` answers 204 for a health check.
 File contents come from your systems. Tell your agent to treat them as data,
 never as instructions; the Bridge says the same in its `instructions`.
 
+## For MCP directories
+
+A directory of MCP servers, such as [Glama](https://glama.ai/mcp/servers),
+builds this repository in a sandbox and inspects the server over stdio, with
+no folder and no token to give it. `glama-stdio.ts` is the entry for that,
+and only for that:
+
+- it creates an empty folder of its own, so there is nothing to share;
+- it draws a random token that lives only in its memory: never in a file, an
+  argument, the environment or a log;
+- it starts the Bridge's own server on `127.0.0.1`, on a free port, serving
+  that folder behind that token;
+- it relays MCP between stdin and stdout and that server, one JSON-RPC
+  message per line, and logs to stderr only;
+- when stdin ends, or on SIGTERM, it stops the server and removes the folder.
+
+A directory sees the Bridge as it is: its `initialize` reply and
+`instructions`, the tools `list_files` and `read_file`, and an empty list of
+files. The entry takes no argument and cannot share a folder: `serve` does
+that. It is in this repository, not in the npm package.
+
+With Node.js 24 or newer, from a checkout:
+
+```sh
+npm ci --ignore-scripts
+node glama-stdio.ts
+```
+
+A directory that speaks HTTP to its sandbox puts
+[mcp-proxy](https://github.com/punkpeye/mcp-proxy) in front of it:
+`mcp-proxy -- node glama-stdio.ts`. On Glama, the server's settings are:
+
+| Setting | Value |
+|---|---|
+| Node.js version | 24 |
+| Build steps | `["npm ci --ignore-scripts"]` |
+| CMD | `["mcp-proxy", "--", "node", "glama-stdio.ts"]` |
+| Environment variables | none |
+
 ## Limits
 
 - PostgreSQL is the one database the extractor reads. Any other system can
