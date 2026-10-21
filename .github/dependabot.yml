@@ -31,3 +31,10 @@ updates:
         patterns: ['*']
     commit-message:
       prefix: ci
+
+  - package-ecosystem: docker
+    directory: /wake-relay
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: docker
