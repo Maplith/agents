@@ -51,7 +51,12 @@ refusing the old. `--allow` limits the addresses that may call. The token
 lives in a file the server checks at start and on every change: a regular
 file of at most 1 KB, readable by its owner only, outside the served folder.
 It is never printed unless `--print-token` asks for it once, and never taken
-on the command line, where other users could see it.
+on the command line, where other users could see it. `stdio` (the command,
+for an agent on the same machine) and the stdio entry for MCP directories
+(`glama-stdio.ts`) draw a token of their own that only their process holds,
+for a server on `127.0.0.1`: they never write, print or log that token, and
+the server still refuses any request without it. The agent that started the
+process is the only one that can talk to it, over its stdin and stdout.
 
 **Tests.**
 
@@ -60,6 +65,8 @@ on the command line, where other users could see it.
 - `serve.test.ts` › "prints the version, the address, where the token is and the Integrations steps, never the token"
 - `serve.test.ts` › "serves only callers on the allow-list, with or without the token"
 - `serve.test.ts` › "has no method that writes: anything unknown is refused"
+- `glama-stdio.test.ts` › "never shows its token on stdout or stderr, and its server takes no request without it"
+- `stdio.test.ts` › "serves the folder it is given to the agent over stdin and stdout, and leaves the folder as it was"
 
 ## 3. Something harmful is sent in
 
@@ -107,10 +114,16 @@ unless the operator chooses a mode. The extractor refuses to run under a role
 that can do more than read, checked in every way a role can write or hand on
 access that the tests below name, and reads in one read-only transaction. It
 runs no SQL of anyone else's: table and column names come from the catalog,
-quoted.
+quoted. No cell value leaves a table's own CSV file: the schema file it writes
+beside them (`maplith-schema.json`) and the hidden catalog hold names, numbers
+(transaction ids among them, in the hidden catalog) and types, and the
+database is named only by a digest of its identity, or not at all where the
+role may not read the server's system identifier, its timeline or when its
+statistics were last reset.
 
 **Tests.**
 
+- `extract-postgres.test.ts` › "the schema file"
 - `extract-postgres.test.ts` › "the credential: never logged, never written, never sent"
 - `extract-postgres.test.ts` › "what the extractor must never do"
 - `extract-postgres-server.test.ts` › "what the extractor must never do, one login role per case"

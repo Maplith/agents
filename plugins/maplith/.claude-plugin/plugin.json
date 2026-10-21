@@ -1,0 +1,34 @@
+{
+  "name": "maplith",
+  "version": "0.2.0",
+  "description": "Maplith for Claude Code: the map of your company's systems, rules and signals over Maplith's MCP server (you sign in; nothing is pasted), Maplith Bridge to share a local folder of data files read-only, and a skill that says when and how to use them.",
+  "author": {
+    "name": "Maplith",
+    "url": "https://maplith.com"
+  },
+  "homepage": "https://maplith.com/docs/own-agent",
+  "repository": "https://github.com/Maplith/agents",
+  "license": "Apache-2.0",
+  "privacyPolicyUrl": "https://maplith.com/privacy",
+  "keywords": [
+    "maplith",
+    "mcp",
+    "data map",
+    "ontology",
+    "signals"
+  ],
+  "mcpServers": {
+    "maplith": {
+      "type": "http",
+      "url": "https://app.maplith.com/api/mcp"
+    },
+    "maplith-bridge": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "maplith-bridge@1.1.0-rc.1", "stdio"],
+      "env": {
+        "EXPORT_DIR": "${MAPLITH_BRIDGE_DIR:-}"
+      }
+    }
+  }
+}

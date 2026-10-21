@@ -4,14 +4,26 @@ Thank you for helping. Issues and pull requests are welcome.
 
 For a security problem, do not open an issue: follow [SECURITY.md](SECURITY.md).
 
+## What is where
+
+- **Maplith Bridge**: the repository root (`bridge.ts`, `serve.ts`,
+  `stdio.ts`, `extract-postgres.ts`, `glama-stdio.ts`, `test/`).
+- **The Claude plugin**: `.claude-plugin/marketplace.json` and
+  `plugins/maplith/`. After a change to the skill, rebuild its zip with
+  `node plugins/maplith/scripts/build-skill-zip.mjs`, and check the plugin
+  with `claude plugin validate plugins/maplith`.
+- **Maplith Wake**: `wake-relay/`, with `render.yaml` at the root because
+  Render reads it there. It has no dependencies: `cd wake-relay && npm test`.
+
 ## Before you start
 
 The Bridge is small on purpose, and its security depends on staying small:
 
-- The server (`serve.ts`) and the command line (`bridge.ts`) use Node.js
-  alone. The extractor (`extract-postgres.ts`) has one dependency, the
-  PostgreSQL client. A change that adds a runtime dependency will not be
-  merged.
+- The server (`serve.ts`), the command line (`bridge.ts`), the stdio relay
+  (`stdio.ts`) and the stdio entry for MCP directories (`glama-stdio.ts`)
+  use Node.js alone. The
+  extractor (`extract-postgres.ts`) has one dependency, the PostgreSQL
+  client. A change that adds a runtime dependency will not be merged.
 - Nothing writes, uploads or runs anything a caller sends.
 - The sources are TypeScript that Node.js 24 runs as it is: only syntax Node
   can strip (no `enum`, no parameter properties, no namespaces).
@@ -44,7 +56,10 @@ MAPLITH_PG_TEST_URL=postgres://postgres:test@localhost:5432/postgres npm --prefi
   row of [THREAT-MODEL.md](THREAT-MODEL.md) updates that row's tests.
 - Keep the CI green: tests on Node.js 24, PostgreSQL 14 and 18, the fuzz run,
   type checking and CodeQL.
-- Add a line to the "Unreleased" section of [CHANGELOG.md](CHANGELOG.md).
+- Add a line to the "Unreleased" section of [CHANGELOG.md](CHANGELOG.md)
+  (the Bridge) or of [wake-relay/CHANGELOG.md](wake-relay/CHANGELOG.md).
+- Pull requests are merged by squashing: one commit per pull request on
+  `main`.
 - Write in plain English, in the code comments as in the documents.
 
 ## Developer Certificate of Origin

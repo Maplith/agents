@@ -37,7 +37,7 @@ describe('the package manifest', () => {
     expect(pkg.type).toBe('module');
     expect(pkg.engines).toEqual({ node: '>=24' });
     // Provenance names the repository the package was built from.
-    expect(pkg.repository).toEqual({ type: 'git', url: 'git+https://github.com/Maplith/bridge.git' });
+    expect(pkg.repository).toEqual({ type: 'git', url: 'git+https://github.com/Maplith/agents.git' });
     expect(pkg.publishConfig).toEqual({ access: 'public', provenance: true });
   });
 

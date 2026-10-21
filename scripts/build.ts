@@ -16,7 +16,7 @@ import { gzipSync } from 'node:zlib';
  *  same bytes, with the same checksum.
  *
  *  What is in it:
- *   - bridge.js, serve.js and extract-postgres.js: the TypeScript sources
+ *   - bridge.js, serve.js, stdio.js and extract-postgres.js: the TypeScript sources
  *     with their types replaced by spaces (Node.js's own stripTypeScriptTypes,
  *     which keeps every line and column where it was), and `./x.ts` imports
  *     pointing at `./x.js`. Node.js does not strip types inside node_modules,
@@ -41,7 +41,7 @@ import { gzipSync } from 'node:zlib';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** The sources, in the repository root, and their names in the package. */
-export const SOURCES = ['bridge.ts', 'serve.ts', 'extract-postgres.ts'] as const;
+export const SOURCES = ['bridge.ts', 'serve.ts', 'stdio.ts', 'extract-postgres.ts'] as const;
 /** The documents in the package, beside the code. */
 export const DOCS = ['CHANGELOG.md', 'INSTALL-WITH-YOUR-AGENT.md', 'LICENSE', 'README.md', 'RUNBOOK.md', 'SECURITY.md', 'THREAT-MODEL.md', 'TRADEMARK.md'] as const;
 /** The command npm links: its file needs a shebang and the execute bit. */

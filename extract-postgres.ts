@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { ENVELOPE, MAX_REPLY, jsonStringBytes } from './serve.ts';
 
 /** The PostgreSQL extractor of Maplith Bridge.
@@ -26,7 +26,43 @@ import { ENVELOPE, MAX_REPLY, jsonStringBytes } from './serve.ts';
  *   3. column statistics as counts only: pg_stats.null_frac and n_distinct.
  *      Never most_common_vals or histogram_bounds — they are lists of values;
  *   4. the contents, one CSV per table, in a deterministic order and cut to
- *      what the template can serve (see writeTable).
+ *      what the template can serve (see writeTable);
+ *   5. the database's identity: pg_control_system()'s system identifier,
+ *      pg_control_checkpoint()'s timeline and when pg_stat_bgwriter's
+ *      statistics were last reset, where the role may read them (every role
+ *      may, unless the server's owner revoked it). Only a digest leaves the
+ *      machine. Where the role may not, no identity is stated (see
+ *      identityBase);
+ *   6. the transaction ids that wrote each table's and column's catalog
+ *      entry (pg_class.xmin, pg_attribute.xmin), and the run's snapshot
+ *      horizon, kept in the hidden catalog only: the next run checks with
+ *      them that the database's history did not go back (see historyGoneBack).
+ *
+ *  Beside the CSVs of each folder it fills, it writes a schema file
+ *  (SCHEMA_FILE, format `maplith-schema/1`) that the server serves like any
+ *  other file: the database's identity, and for each table its file, its
+ *  relation id, its columns with their attribute numbers and declared types,
+ *  its keys and its estimated row count. Names, numbers and types only,
+ *  never a value. A reader can tell from it that a renamed column is the
+ *  same column (PostgreSQL keeps its attribute number) and that a column
+ *  dropped and added again is a new one (it gets a new number). Across runs,
+ *  only while the file states the same database. A restore keeps the
+ *  relation ids and attribute numbers it had, and the next ADD COLUMN reuses
+ *  numbers a later state had given other columns, so the identity changes
+ *  with the server, the database, the timeline, a reset of the server's
+ *  statistics (every start that has to recover resets them: after a crash,
+ *  or from a restored snapshot or base backup), and the history's epoch, which
+ *  moves on when a run finds a catalog entry the previous run read written
+ *  again before that run (an earlier copy restored, then changed), and is
+ *  drawn anew, at random, when the folder has no record to go on from. The
+ *  same number names another column under an unchanged identity only where
+ *  none of that shows: a copy taken while the server was stopped and started
+ *  again as it was, changed only once its transaction counter had passed
+ *  where the original's stood at the previous run (or restored together with
+ *  the hidden catalog).
+ *  Without the system identifier nothing tells a restore apart (a fresh
+ *  server hands out the same ids, and pg_dump renumbers the attribute
+ *  numbers), so the file then names no database.
  *
  *  What it never does, and where that is enforced:
  *   - write: the run refuses to start under a role that holds any privilege
@@ -87,6 +123,9 @@ export const MAX_FILE_BYTES = MAX_REPLY - ENVELOPE - 1024;
  *  no client reads it. */
 export const CATALOG_FILE = '.maplith-extract.json';
 export const CATALOG_FORMAT = 'maplith-extract/1';
+/** The schema file written beside the CSVs of each folder, and served. */
+export const SCHEMA_FILE = 'maplith-schema.json';
+export const SCHEMA_FORMAT = 'maplith-schema/1';
 
 /** A role the extractor will not run under. `reasons` name roles and objects,
  *  never a value. */
@@ -199,6 +238,33 @@ export const BEGIN_SQL = 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY';
 export const END_SQL = 'ROLLBACK';
 export const SESSION_INFO_SQL =
   "SELECT current_setting('transaction_read_only') AS read_only, current_setting('server_version_num') AS version, current_database()::text AS database";
+
+/** Whether the role may read what the database's identity is made of (the
+ *  server's system identifier, its timeline and its statistics' last reset),
+ *  and the database's own id. The functions are looked up by name
+ *  (to_regprocedure: null, not an error, where a server lacks one), and read
+ *  only when the role may read all three, inside a savepoint: a server that
+ *  refuses the call costs the identity, never the run. Every role may, unless
+ *  the server's owner revoked one from PUBLIC. The database's oid changes
+ *  when it is dropped and created again. */
+export const SYSTEM_ID_READABLE_SQL =
+  "SELECT coalesce(has_function_privilege(to_regprocedure('pg_catalog.pg_control_system()'), 'EXECUTE') AND has_function_privilege(to_regprocedure('pg_catalog.pg_control_checkpoint()'), 'EXECUTE') AND has_table_privilege('pg_catalog.pg_stat_bgwriter', 'SELECT'), false) AS readable, (SELECT d.oid::text FROM pg_catalog.pg_database d WHERE d.datname = current_database()) AS database_oid";
+/** The system identifier is drawn when the server's data directory is made;
+ *  the timeline moves on with a point-in-time recovery or a promotion; the
+ *  shared statistics' last reset moves with every start that has to recover
+ *  (after a crash, or from a restored snapshot or base backup), and a clean
+ *  restart keeps it. */
+export const SYSTEM_ID_SQL =
+  'SELECT s.system_identifier::text AS system_identifier, c.timeline_id::text AS timeline, (SELECT b.stats_reset::text FROM pg_catalog.pg_stat_bgwriter b) AS stats_reset FROM pg_catalog.pg_control_system() s CROSS JOIN pg_catalog.pg_control_checkpoint() c';
+export const SYSTEM_ID_SAVEPOINT = 'SAVEPOINT maplith_identity';
+export const SYSTEM_ID_RELEASE = 'RELEASE SAVEPOINT maplith_identity';
+export const SYSTEM_ID_UNDO = 'ROLLBACK TO SAVEPOINT maplith_identity';
+/** The run's snapshot as transaction ids, which every role may read: every
+ *  transaction below `horizon` had ended when the run began, and `next_xid`
+ *  is the next to be given out. Read in the run's own transaction, so the
+ *  snapshot is the one the catalog is read under. */
+export const HISTORY_SQL =
+  'SELECT pg_catalog.txid_snapshot_xmin(pg_catalog.txid_current_snapshot())::text AS horizon, pg_catalog.txid_snapshot_xmax(pg_catalog.txid_current_snapshot())::text AS next_xid';
 
 /** Every way the role (and every role it is a member of, inherited or not)
  *  could change something. One row per finding; none means read-only.
@@ -378,17 +444,22 @@ ORDER BY 1`;
 
 /** Tables, views and materialized views the role may read at least one column
  *  of. Partitions are read through their parent; foreign tables are not read
- *  (a read there runs on another server). System schemas are left out. */
+ *  (a read there runs on another server). System schemas are left out.
+ *  `xmin` and `natts` (the attribute numbers the relation has given out,
+ *  dropped columns included) go to the hidden catalog only (historyGoneBack). */
 export const TABLES_SQL = `SELECT c.oid::text AS oid, n.nspname::text AS schema, c.relname::text AS name, c.relkind::text AS kind,
-  CASE WHEN c.relkind IN ('r', 'p', 'm') AND c.reltuples >= 0 THEN c.reltuples::float8 END AS estimated_rows
+  CASE WHEN c.relkind IN ('r', 'p', 'm') AND c.reltuples >= 0 THEN c.reltuples::float8 END AS estimated_rows,
+  c.xmin::text AS xmin, c.relnatts::int AS natts
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'p', 'v', 'm') AND NOT c.relispartition
   AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp\\_%'
   AND has_schema_privilege(n.oid, 'USAGE') AND has_any_column_privilege(c.oid, 'SELECT')
 ORDER BY n.nspname COLLATE "C", c.relname COLLATE "C"`;
 
-/** The columns the role may SELECT, with their declared types. */
-export const COLUMNS_SQL = `SELECT a.attrelid::text AS oid, a.attname::text AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null
+/** The columns the role may SELECT, with their declared types and their
+ *  attribute numbers, which survive RENAME COLUMN. `xmin`, the transaction
+ *  that last wrote the column's catalog entry, goes to the hidden catalog only. */
+export const COLUMNS_SQL = `SELECT a.attrelid::text AS oid, a.attname::text AS name, a.attnum::int AS attnum, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null, a.xmin::text AS xmin
 FROM pg_attribute a
 WHERE a.attrelid = ANY($1::text[]::oid[]) AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege(a.attrelid, a.attnum, 'SELECT')
 ORDER BY a.attrelid, a.attnum`;
@@ -427,17 +498,30 @@ export function contentsSql(schema: string, table: string, columns: readonly str
 
 export interface CatalogColumn {
   name: string;
+  /** pg_attribute.attnum: kept by RENAME COLUMN, new for a column added again. */
+  attnum: number;
   type: string;
   not_null: boolean;
   /** pg_stats.null_frac; null when the table was never analysed. */
   null_frac: number | null;
   /** pg_stats.n_distinct: a count when positive, minus a share of the rows when negative. */
   n_distinct: number | null;
+  /** pg_attribute.xmin: the transaction that last wrote the column's catalog
+   *  entry (an ADD COLUMN, a RENAME COLUMN, a grant). Hidden catalog only. */
+  xmin: string;
 }
 
 export interface CatalogTable {
   schema: string;
   name: string;
+  /** pg_class.oid: the relation's id, new when the table is created again (a dump and restore). */
+  relid: number;
+  /** pg_class.xmin: the transaction that last wrote the relation's catalog entry. Hidden catalog only. */
+  xmin: string;
+  /** pg_class.relnatts: the attribute numbers the relation has given out,
+   *  dropped columns included. It never goes down while the database's
+   *  history goes on. Hidden catalog only. */
+  natts: number;
   kind: 'table' | 'partitioned table' | 'view' | 'materialized view';
   /** The CSV this table was written to, relative to the served folder. */
   file: string;
@@ -454,14 +538,67 @@ export interface CatalogTable {
   foreign_keys: { columns: string[]; references: { schema: string; table: string; columns: string[] } }[];
 }
 
+/** The database's identity as the schema file states it: a digest, never
+ *  the identifier itself. */
+export interface DatabaseIdentity {
+  /** 32 hexadecimal characters. */
+  id: string;
+  /** What it was made from: the server's system identifier (the one thing a
+   *  read-only role can read that a restore into another server changes),
+   *  with its timeline, its statistics' last reset and the history's epoch. */
+  from: 'system_identifier';
+}
+
+/** What a run keeps, in the hidden catalog, for the next run to check that
+ *  the database's history went on from it (historyGoneBack). */
+export interface CatalogHistory {
+  /** A digest of everything the identity is made of but the epoch. The next
+   *  run compares only under the same base: another base is another identity. */
+  base: string;
+  /** 16 hexadecimal characters, drawn at random where this folder's record
+   *  of the history begins (firstEpoch), and moved on whenever a run finds
+   *  the history gone back since the run before it (nextEpoch); the runs
+   *  after keep it. */
+  epoch: string;
+  /** txid_snapshot_xmin of the run's snapshot: every transaction below it had
+   *  ended when the run read the catalog. */
+  horizon: string;
+}
+
 export interface Catalog {
   format: typeof CATALOG_FORMAT;
   database: string;
   server_version: number;
   max_rows: number;
+  /** Null where the role may not read the system identifier. */
+  identity: DatabaseIdentity | null;
+  /** Null with the identity. */
+  history: CatalogHistory | null;
   tables: CatalogTable[];
   /** Every file this run wrote, so the next run can remove one whose table is gone. */
   files: string[];
+}
+
+/** One folder's schema file: what the server serves about its CSVs. */
+export interface SchemaFile {
+  format: typeof SCHEMA_FORMAT;
+  /** DatabaseIdentity.id, or null when no identity can be proven: the
+   *  relation ids and attribute numbers then hold within this file only,
+   *  never from one run to the next. */
+  database: string | null;
+  tables: {
+    /** The CSV, relative to the schema file's folder. */
+    file: string;
+    schema: string;
+    name: string;
+    kind: CatalogTable['kind'];
+    relid: number;
+    estimated_rows: number | null;
+    columns: { name: string; attnum: number; type: string; not_null: boolean }[];
+    primary_key: string[] | null;
+    unique: string[][];
+    foreign_keys: CatalogTable['foreign_keys'];
+  }[];
 }
 
 const KINDS: Record<string, CatalogTable['kind']> = { r: 'table', p: 'partitioned table', v: 'view', m: 'materialized view' };
@@ -556,20 +693,181 @@ function atomicWrite(file: string, text: string): void {
   }
 }
 
-/** The files the previous run wrote, from its catalog; [] when there is none or
- *  it cannot be read. Only paths that stay inside the folder and name a CSV. */
-function previousFiles(catalogPath: string): string[] {
-  let prev: unknown;
+/** The previous run's catalog, or null when there is none or it cannot be read. */
+function previousCatalog(catalogPath: string): Partial<Catalog> | null {
   try {
-    prev = JSON.parse(readFileSync(catalogPath, 'utf8'));
+    const prev: unknown = JSON.parse(readFileSync(catalogPath, 'utf8'));
+    return prev && typeof prev === 'object' && !Array.isArray(prev) ? (prev as Partial<Catalog>) : null;
   } catch {
-    return [];
+    return null;
   }
-  const files = prev && typeof prev === 'object' && Array.isArray((prev as Catalog).files) ? (prev as Catalog).files : [];
+}
+
+/** The files the previous run wrote, from its catalog; [] when there is none or
+ *  it cannot be read. Only paths that stay inside the folder and name a CSV or
+ *  a schema file. */
+function previousFiles(prev: Partial<Catalog> | null): string[] {
+  const files = prev && Array.isArray(prev.files) ? prev.files : [];
   return files.filter(
     (f): f is string =>
-      typeof f === 'string' && f.endsWith('.csv') && !isAbsolute(f) && !f.includes('\\') && !f.split('/').some((seg) => seg === '' || seg === '.' || seg === '..' || seg.startsWith('.')),
+      typeof f === 'string' &&
+      (f.endsWith('.csv') || f.split('/').pop() === SCHEMA_FILE) &&
+      !isAbsolute(f) &&
+      !f.includes('\\') &&
+      !f.split('/').some((seg) => seg === '' || seg === '.' || seg === '..' || seg.startsWith('.')),
   );
+}
+
+/** What a read-only role reads of the server for the database's identity. */
+export interface ServerFacts {
+  /** pg_control_system().system_identifier: drawn when the data directory is made. */
+  systemIdentifier: string;
+  /** pg_control_checkpoint().timeline_id: a point-in-time recovery or a promotion moves it on. */
+  timeline: string;
+  /** pg_stat_bgwriter.stats_reset: every start that has to recover resets
+   *  it (after a crash, or from a restored snapshot or base backup); a clean
+   *  restart keeps it. PostgreSQL stamps it at the first start. */
+  statsReset: string;
+}
+
+const digest = (parts: readonly string[]) => createHash('sha256').update(parts.join('\u0000')).digest('hex');
+
+/** Everything the database's identity is made of but the epoch, as a digest:
+ *  the server's system identifier, its timeline and its statistics' last
+ *  reset, with the database's oid and name, so two databases of one server,
+ *  or a database dropped and created again, are told apart. A restore into
+ *  another server changes the system identifier, a point-in-time recovery
+ *  the timeline, a start from a restored snapshot or base backup the
+ *  statistics' reset, and a restore into the same server gives the database
+ *  or each table a new oid.
+ *
+ *  Null without the system identifier, the timeline or the statistics'
+ *  reset. Nothing else a
+ *  read-only role can read proves the database: a fresh server hands out
+ *  oids from the same counter, so a restore with the same DDL gives the
+ *  database and the table the ids they had, and pg_dump renumbers the
+ *  attribute numbers without the gaps dropped columns left, so the same
+ *  number can name another column. An id this extractor kept of its own
+ *  would stay the same through that restore. */
+export function identityBase(server: ServerFacts, databaseOid: string, database: string): string | null {
+  if (!server.systemIdentifier || !server.timeline || !server.statsReset) return null;
+  return digest(['system_identifier', server.systemIdentifier, databaseOid, database, 'timeline', server.timeline, 'stats_reset', server.statsReset]);
+}
+
+/** The identity the schema file states: the base and the history's epoch. */
+export function databaseIdentity(base: string | null, epoch = ''): DatabaseIdentity | null {
+  if (!base) return null;
+  return { id: digest(['database', base, 'epoch', epoch]).slice(0, 32), from: 'system_identifier' };
+}
+
+/** The epoch where a folder's record of the history begins: drawn at
+ *  random, never from what the run reads. Nothing a read-only role reads
+ *  tells a copy of the database from the original: a copy restored and
+ *  changed by as many transactions stands at the original's horizon (a
+ *  scripted migration does that), and a copy read before any change is the
+ *  original as it stood, catalog and all, until the two go separate ways. So
+ *  a record that begins never restates an identity another record stated. */
+export function firstEpoch(): string {
+  return randomBytes(8).toString('hex');
+}
+
+/** The epoch after `epoch`, where a run finds the history gone back: drawn
+ *  from it and the run's horizon, so never the one before. */
+export function nextEpoch(epoch: string, horizon: string): string {
+  return digest(['epoch', epoch, horizon]).slice(0, 16);
+}
+
+const XID_SPAN = 2n ** 32n;
+const isDigits = (v: unknown): v is string => typeof v === 'string' && /^\d{1,20}$/.test(v);
+
+/** A catalog entry's 32-bit xmin as a 64-bit transaction id: the latest id
+ *  below `next` with those low bits, which is exact for any transaction of
+ *  the last two billion. Null for the special ids (bootstrap, frozen) and
+ *  anything that is not one. */
+export function fullXid(xmin: string, next: bigint): bigint | null {
+  if (!isDigits(xmin)) return null;
+  const x = BigInt(xmin);
+  if (x < 3n || x >= XID_SPAN) return null;
+  let full = next - (next % XID_SPAN) + x;
+  if (full >= next) full -= XID_SPAN;
+  return full >= 0n ? full : null;
+}
+
+/** Why the database's history went back since the run that wrote `prev`, or
+ *  null when it went on (or nothing tells). In one history a catalog entry
+ *  the previous run read changes only by a transaction that had not ended
+ *  when that run began, and pg_class.relnatts never goes down. A restore of
+ *  an earlier copy breaks that where it matters here: the next ADD COLUMN
+ *  reuses attribute numbers (and a later CREATE TABLE relation ids) that a
+ *  later state had given to other columns, and their entries are written by
+ *  transaction ids below the previous run's horizon (the restored server
+ *  hands them out again), or by the very ids the previous run saw, with
+ *  another name. So, for every table both runs read (by relation id), the
+ *  history went back when:
+ *    - the relation has fewer attribute numbers than before;
+ *    - its entry, or a column's at the same attribute number, has the xmin
+ *      the previous run read but another name (or attribute count);
+ *    - it has another xmin, one older than the previous run's horizon.
+ *  Compared only under the same base, and only for what both runs read: a
+ *  column the previous run could not read tells nothing. `prev` is the
+ *  hidden catalog as read from disk, so every field is checked. */
+export function historyGoneBack(prev: Partial<Catalog> | null, base: string, tables: readonly CatalogTable[], nextXid: string): string | null {
+  const h = prev?.history;
+  if (!h || typeof h !== 'object' || h.base !== base || !isDigits(h.horizon) || !isDigits(nextXid) || !Array.isArray(prev?.tables)) return null;
+  const horizon = BigInt(h.horizon);
+  const next = BigInt(nextXid);
+  const older = (xmin: string) => {
+    const full = fullXid(xmin, next);
+    return full !== null && full < horizon;
+  };
+  const before = new Map<number, Partial<CatalogTable>>();
+  for (const p of prev.tables as unknown[]) if (p && typeof p === 'object' && Number.isInteger((p as CatalogTable).relid)) before.set((p as CatalogTable).relid, p as Partial<CatalogTable>);
+  for (const t of tables) {
+    const p = before.get(t.relid);
+    if (!p) continue;
+    const rel = printable(`${t.schema}.${t.name}`);
+    if (Number.isInteger(p.natts) && p.natts! > t.natts) return `${rel} has fewer attribute numbers than at the previous run`;
+    if (isDigits(p.xmin)) {
+      if (p.xmin === t.xmin) {
+        if (p.name !== t.name || (Number.isInteger(p.natts) && p.natts !== t.natts)) return `${rel}: its catalog entry changed under the transaction id the previous run read`;
+      } else if (older(t.xmin)) return `${rel}: its catalog entry was written before the previous run, and is not the one that run read`;
+    }
+    const cols = new Map<number, Partial<CatalogColumn>>();
+    if (Array.isArray(p.columns)) for (const c of p.columns as unknown[]) if (c && typeof c === 'object' && Number.isInteger((c as CatalogColumn).attnum)) cols.set((c as CatalogColumn).attnum, c as Partial<CatalogColumn>);
+    for (const c of t.columns) {
+      const pc = cols.get(c.attnum);
+      if (!pc || !isDigits(pc.xmin)) continue;
+      const col = `${rel} attribute ${c.attnum}`;
+      if (pc.xmin === c.xmin) {
+        if (pc.name !== c.name) return `${col}: its catalog entry changed under the transaction id the previous run read`;
+      } else if (older(c.xmin)) return `${col}: its catalog entry was written before the previous run, and is not the one that run read`;
+    }
+  }
+  return null;
+}
+
+/** The schema file of each folder the run wrote CSVs into: folder → file. */
+export function schemaFiles(identity: DatabaseIdentity | null, tables: readonly CatalogTable[]): Map<string, SchemaFile> {
+  const out = new Map<string, SchemaFile>();
+  for (const t of tables) {
+    const cut = t.file.lastIndexOf('/');
+    const folder = t.file.slice(0, cut);
+    const entry = out.get(folder) ?? { format: SCHEMA_FORMAT, database: identity?.id ?? null, tables: [] };
+    entry.tables.push({
+      file: t.file.slice(cut + 1),
+      schema: t.schema,
+      name: t.name,
+      kind: t.kind,
+      relid: t.relid,
+      estimated_rows: t.estimated_rows,
+      columns: t.columns.map((c) => ({ name: c.name, attnum: c.attnum, type: c.type, not_null: c.not_null })),
+      primary_key: t.primary_key,
+      unique: t.unique,
+      foreign_keys: t.foreign_keys,
+    });
+    out.set(folder, entry);
+  }
+  return out;
 }
 
 export interface ExtractResult {
@@ -602,6 +900,9 @@ export async function extract(opts: ExtractOptions): Promise<ExtractResult> {
   const out = realpathSync(resolve(opts.out));
 
   let warnings: Finding[] = [];
+  const catalogDir = opts.system ? join(out, safeName(opts.system)) : out;
+  const catalogPath = join(catalogDir, CATALOG_FILE);
+  const prev = previousCatalog(catalogPath);
   for (const sql of SESSION_SQL) await q(sql);
   await q(TIMEOUT_SQL, [String(statementTimeout)]);
   await q(BEGIN_SQL);
@@ -610,6 +911,26 @@ export async function extract(opts: ExtractOptions): Promise<ExtractResult> {
     const version = Number(str(info?.version));
     warnings = await checkRole(q, version, str(info?.read_only));
     for (const line of warningLines(warnings)) log(line);
+    const [idInfo] = await q(SYSTEM_ID_READABLE_SQL);
+    const readable = idInfo?.readable === true || idInfo?.readable === 't';
+    const server: ServerFacts = { systemIdentifier: '', timeline: '', statsReset: '' };
+    if (readable) {
+      await q(SYSTEM_ID_SAVEPOINT);
+      try {
+        const [row] = await q(SYSTEM_ID_SQL);
+        server.systemIdentifier = str(row?.system_identifier);
+        server.timeline = str(row?.timeline);
+        server.statsReset = str(row?.stats_reset);
+        await q(SYSTEM_ID_RELEASE);
+      } catch {
+        // The server would not say: no identity is stated.
+        await q(SYSTEM_ID_UNDO);
+      }
+    }
+    const [history] = await q(HISTORY_SQL);
+    const base = identityBase(server, str(idInfo?.database_oid), str(info?.database));
+    // A name and a reason only: never the identifier, never a value.
+    if (!base) log(`database identity: not stated in ${SCHEMA_FILE}: the role may not read the server's system identifier, timeline and statistics' last reset, and without them a database restored from this one cannot be told apart, so relation ids and attribute numbers hold within one run only`);
 
     const tableRows = await q(TABLES_SQL);
     for (const f of await q(FOREIGN_TABLES_SQL)) log(`${printable(str(f.name))}: skipped (a foreign table: a read there runs on another server)`);
@@ -650,14 +971,19 @@ export async function extract(opts: ExtractOptions): Promise<ExtractResult> {
       }
       const columns: CatalogColumn[] = colNames.map((c) => ({
         name: str(c.name),
+        attnum: Number(c.attnum),
         type: str(c.type),
         not_null: c.not_null === true || c.not_null === 't',
         null_frac: stats.get(str(c.name))?.null_frac ?? null,
         n_distinct: stats.get(str(c.name))?.n_distinct ?? null,
+        xmin: str(c.xmin),
       }));
       const entry: CatalogTable = {
         schema,
         name,
+        relid: Number(oid),
+        xmin: str(t.xmin),
+        natts: Number(t.natts),
         kind: KINDS[str(t.kind)] ?? 'table',
         file: files[ti],
         estimated_rows: num(t.estimated_rows),
@@ -680,24 +1006,47 @@ export async function extract(opts: ExtractOptions): Promise<ExtractResult> {
       tables.push(entry);
     }
 
+    // The history's epoch: kept from the previous run of this folder while
+    // the database's history went on from it, and a new one when it went
+    // back, or when this folder has no record of it to go on from (a first
+    // run, a folder emptied, another folder, another database): a record
+    // that starts again could not have seen a restore before it, so it
+    // draws one no other record holds (firstEpoch).
+    const horizon = str(history?.horizon);
+    const before = prev?.history && typeof prev.history === 'object' && prev.history.base === base && typeof prev.history.epoch === 'string' && /^[0-9a-f]{16}$/.test(prev.history.epoch) ? prev.history.epoch : null;
+    let epoch = firstEpoch();
+    if (base && before) {
+      const back = historyGoneBack(prev, base, tables, str(history?.next_xid));
+      epoch = back ? nextEpoch(before, horizon) : before;
+      // Names and what happened only: never a value, never a transaction id.
+      if (back) log(`database history: ${back}. A restore of an earlier copy does that, so this run states the database under another identity than the previous run`);
+    }
+    const identity = databaseIdentity(base, epoch);
+    const schemas = schemaFiles(identity, tables);
     const catalog: Catalog = {
       format: CATALOG_FORMAT,
       database: str(info?.database),
       server_version: version,
       max_rows: maxRows,
+      identity,
+      history: base ? { base, epoch, horizon } : null,
       tables,
-      files: opts.checkOnly ? [] : tables.map((t) => t.file),
+      files: opts.checkOnly ? [] : [...tables.map((t) => t.file), ...[...schemas.keys()].map((folder) => `${folder}/${SCHEMA_FILE}`)],
     };
     if (!opts.checkOnly) {
-      const catalogDir = opts.system ? join(out, safeName(opts.system)) : out;
-      const catalogPath = join(catalogDir, CATALOG_FILE);
+      // The schema of each folder, after its CSVs: a reader never finds a
+      // schema naming a file this run has not written yet.
+      for (const [folder, schema] of schemas) {
+        atomicWrite(join(out, ...folder.split('/'), SCHEMA_FILE), `${JSON.stringify(schema, null, 2)}\n`);
+        log(`${folder}/${SCHEMA_FILE}: the schema of ${schema.tables.length} table${schema.tables.length === 1 ? '' : 's'} (names, attribute numbers, types and keys; no values)`);
+      }
       const keep = new Set(catalog.files);
-      for (const f of previousFiles(catalogPath)) {
+      for (const f of previousFiles(prev)) {
         if (keep.has(f)) continue;
         const abs = normalize(join(out, f));
         if (!abs.startsWith(out + sep)) continue;
         rmSync(abs, { force: true });
-        log(`${f}: removed (its table is no longer readable)`);
+        log(f.split('/').pop() === SCHEMA_FILE ? `${f}: removed (no table of its folder is readable any more)` : `${f}: removed (its table is no longer readable)`);
       }
       atomicWrite(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
     }

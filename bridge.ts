@@ -1,14 +1,17 @@
-import { closeSync, constants as fsc, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants as fsc, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import type { Server } from 'node:http';
 import { isLoopback, serve } from './serve.ts';
 import { runCli as runExtract } from './extract-postgres.ts';
+import { relayStdio } from './stdio.ts';
 
 /** Maplith Bridge: one command for the side that holds the data.
  *
  *    maplith-bridge serve --dir <folder> [--tls-cert … --tls-key …] [--host …]
+ *    maplith-bridge stdio [--dir <folder>]
  *    maplith-bridge extract postgres --out <folder> [--check]
  *    maplith-bridge rotate-token [--print-token]
  *
@@ -18,8 +21,11 @@ import { runCli as runExtract } from './extract-postgres.ts';
  *  assistant. The file is read again when it changes, so `rotate-token`
  *  takes effect on a running server. `extract postgres` is
  *  extract-postgres.ts, whose one dependency, the PostgreSQL driver, is
- *  loaded only by that command: `serve` and `rotate-token` run on Node.js
- *  alone (THREAT-MODEL.md, "A malicious version of a package").
+ *  loaded only by that command: `serve`, `stdio` and `rotate-token` run on
+ *  Node.js alone (THREAT-MODEL.md, "A malicious version of a package").
+ *  `stdio` is serve.ts for the one agent that started it, over stdin and
+ *  stdout (stdio.ts): for an agent that runs its MCP servers as local
+ *  commands, such as Claude Code, with a token only that process holds.
  *
  *  Runs on Node.js 24 or newer as it is, with no build step: the TypeScript
  *  here uses only syntax Node strips (no enums, no parameter properties).
@@ -28,6 +34,13 @@ import { runCli as runExtract } from './extract-postgres.ts';
 
 export const INTEGRATIONS_URL = 'https://app.maplith.com/w/<workspace>/integrations';
 export const GUIDE_URL = 'https://maplith.com/docs/mcp-template';
+/** The one line about mail: printed when a server starts and after
+ *  rotate-token. The Bridge never sends anything anywhere; signing up is a
+ *  choice the person makes on that page, with their own address. */
+export const UPDATES_LINE = 'Security notices and release news: https://maplith.com/bridge/updates';
+/** One line about who makes it, printed once when a server starts: a link,
+ *  nothing asked and nothing sent. The tags say a visit came from this line. */
+export const ABOUT_LINE = 'Maplith Bridge is open source, made by Maplith: https://maplith.com/open-source?utm_source=bridge-cli&utm_medium=cli&utm_campaign=oss-bridge';
 export const DEFAULT_TOKEN_FILE = 'maplith-bridge.token';
 
 /** How the person started this command, so help and messages show a command
@@ -110,6 +123,27 @@ effect without a restart. The token is never printed.
 
 Guide: ${GUIDE_URL}`;
   }
+  if (command === 'stdio') {
+    return `Usage: ${program()} stdio [--dir <folder>] [--name <name>]
+
+Serves the files in <folder> to the AI agent that started this command, over
+its stdin and stdout (the MCP stdio transport), read-only. For an agent that
+runs its MCP servers as local commands, such as Claude Code. The same server
+as serve, on this machine only (127.0.0.1), behind a token that lives only in
+this process: no token file, nothing to type, nothing printed. Logs go to
+stderr; stdout carries MCP only. It stops when stdin ends.
+
+Options:
+  --dir <folder>          The folder to serve (or EXPORT_DIR). Without one it
+                          serves an empty folder of its own, removed when it
+                          stops, and says how to name one.
+  --name <name>           The name files are listed under: <name>://<path>.
+                          Default exports.
+
+To share a folder with Maplith or with an agent on another machine, use serve.
+
+Guide: ${GUIDE_URL}`;
+  }
   if (command === 'rotate-token') {
     return `Usage: ${program()} rotate-token [--token-file <path>] [--print-token]
 
@@ -161,6 +195,8 @@ the folder through it, and so can any MCP client you give the token to.
 
 Commands:
   serve               Serve a folder, read-only.
+  stdio               Serve a folder to the agent that started this command,
+                      over stdin and stdout.
   extract postgres    Fill the folder from a PostgreSQL database, under a
                       read-only role.
   rotate-token        Write a new token to the token file; the old one stops
@@ -447,7 +483,48 @@ async function serveCommand(argv: readonly string[], env: Env, io: Io, cwd: stri
   io.stdout('  3. Bearer token: type the token from the token file, in the app only, never into a chat with an assistant.');
   io.stdout('  4. Choose Test connection, then Review the scan.');
   io.stdout('Any other MCP client: the same URL and token. It offers the tools list_files and read_file.');
+  io.stdout(UPDATES_LINE);
+  io.stdout(ABOUT_LINE);
   return { code: 0, server, url };
+}
+
+/** `stdio`: the folder to the agent that started this process, relayed over
+ *  stdin and stdout (stdio.ts). Nothing on stdout but MCP: a usage error goes
+ *  to stderr like every other. */
+async function stdioCommand(argv: readonly string[], env: Env, cwd: string): Promise<BridgeResult> {
+  const f = flags(argv, { '--dir': 'value', '--name': 'value' });
+  // An empty EXPORT_DIR is no folder: a plugin passes the variable through
+  // whether or not the person set it.
+  const given = f.get('--dir') ?? (env.EXPORT_DIR?.trim() ? env.EXPORT_DIR : undefined);
+  const name = f.get('--name') ?? 'exports';
+  if (!/^[a-z][a-z0-9-]{0,39}$/.test(name)) throw new UsageError('--name takes lower-case letters, digits and hyphens, starting with a letter (at most 40).');
+  let root: string;
+  if (given !== undefined) {
+    const dir = resolve(cwd, given);
+    let st;
+    try {
+      st = statSync(dir);
+    } catch {
+      throw new UsageError(`The folder ${dir} does not exist.`);
+    }
+    if (!st.isDirectory()) throw new UsageError(`${dir} is not a folder.`);
+    root = realpathSync(dir);
+  } else {
+    root = mkdtempSync(join(tmpdir(), 'maplith-bridge-stdio-'));
+  }
+  const temporary = given === undefined;
+  const v = version();
+  await relayStdio({
+    root,
+    name,
+    version: v,
+    temporary,
+    started: (url) =>
+      temporary
+        ? `Maplith Bridge ${v}: no folder named, so an empty one is served at ${url} (this machine only). To share files, give --dir <folder> or set EXPORT_DIR.`
+        : `Maplith Bridge ${v}: serving ${root} read-only at ${url} (this machine only), relayed over stdin and stdout.`,
+  });
+  return { code: 0 };
 }
 
 function rotateCommand(argv: readonly string[], env: Env, io: Io, cwd: string): BridgeResult {
@@ -457,6 +534,7 @@ function rotateCommand(argv: readonly string[], env: Env, io: Io, cwd: string): 
   io.stdout(`Wrote a new token to ${file} (readable by its owner only).`);
   io.stdout('A running Bridge that reads this file uses it from its next request; the old token is refused from then on.');
   io.stdout('Next, in Maplith: under Integrations, remove the connection and add it again with the new token.');
+  io.stdout(UPDATES_LINE);
   if (f.has('--print-token')) {
     io.stderr('The new token follows, printed once because you asked. Type it into Maplith only, never into a chat with an assistant.');
     io.stdout(token);
@@ -481,6 +559,10 @@ export async function runBridge(argv: readonly string[], env: Env, io: Io, cwd: 
     if (command === 'serve') {
       if (wantsHelp) return (io.stdout(helpText('serve')), { code: 0 });
       return await serveCommand(rest, env, io, cwd);
+    }
+    if (command === 'stdio') {
+      if (wantsHelp) return (io.stdout(helpText('stdio')), { code: 0 });
+      return await stdioCommand(rest, env, cwd);
     }
     if (command === 'rotate-token') {
       if (wantsHelp) return (io.stdout(helpText('rotate-token')), { code: 0 });

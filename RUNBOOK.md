@@ -33,24 +33,28 @@ environment, its files or its memory.
 ## 1. Download, verify and install
 
 Download the release, its checksum and its attestation from
-[the releases page](https://github.com/Maplith/bridge/releases). Check the
+[the releases page](https://github.com/Maplith/agents/releases). Check the
 checksum; check that npm, which holds the same file, has the same digest for
 it (the two lines must be equal), so a file changed in one place is caught by
 the other; and, if you have the GitHub CLI, check the build attestation, which
 proves the file was built from this repository by its release workflow:
 
 ```sh
-VERSION=1.0.0-rc.1
-BASE=https://github.com/Maplith/bridge/releases/download/v$VERSION
+VERSION=1.1.0-rc.1
+BASE=https://github.com/Maplith/agents/releases/download/v$VERSION
 curl -fLO $BASE/maplith-bridge-$VERSION.tgz
 curl -fLO $BASE/maplith-bridge-$VERSION.tgz.sha256
 curl -fLO $BASE/maplith-bridge-$VERSION.tgz.sigstore.json
 sha256sum -c maplith-bridge-$VERSION.tgz.sha256
 echo "sha512-$(openssl dgst -sha512 -binary maplith-bridge-$VERSION.tgz | openssl base64 -A)"
 npm view maplith-bridge@$VERSION dist.integrity
-gh attestation verify maplith-bridge-$VERSION.tgz --repo Maplith/bridge \
+gh attestation verify maplith-bridge-$VERSION.tgz --repo Maplith/agents \
   --bundle maplith-bridge-$VERSION.tgz.sigstore.json
 ```
+
+This repository was called `Maplith/bridge` until version 1.1.0. A release
+built before then names that repository in its attestation: verify it with
+`--repo Maplith/bridge`.
 
 Then create the users and folders, and install:
 
@@ -69,7 +73,7 @@ sudo chmod 700 /etc/maplith-bridge
 cd /opt/maplith-bridge && sudo npm ci --ignore-scripts --omit=dev
 ```
 
-`npm ci` installs the PostgreSQL client, pg 8.23.0, and the packages it needs,
+`npm ci` installs the PostgreSQL client, pg 8.23.1, and the packages it needs,
 each checked against the hash in `npm-shrinkwrap.json`. No install script runs.
 `node /opt/maplith-bridge/bridge.js --version` prints the version.
 
@@ -164,6 +168,16 @@ sudo -u maplith-bridge node bridge.js rotate-token --token-file /etc/maplith-bri
 It writes a random 256-bit token to the file, readable by `maplith-bridge`
 only, and prints where it is, never the token itself. The Bridge takes only a
 token in this shape: do not write one by hand.
+
+It also prints one line, as `serve` does when it starts:
+
+```text
+Security notices and release news: https://maplith.com/bridge/updates
+```
+
+The Bridge never calls home: it sends no telemetry and checks for no updates.
+To hear about a security fix, sign up on that page with your own address, if
+you want to. It is optional, and every email has a link to stop.
 
 ## 5. Serve it behind TLS
 
@@ -266,7 +280,8 @@ use `GET /healthz`, which answers 204 with no body and needs no token.
 
   With option A, use `https://127.0.0.1:8443/mcp` and add `-k` (the
   certificate names your host, not 127.0.0.1). The answer lists your files as
-  `exports://<schema>/<table>.csv`.
+  `exports://<schema>/<table>.csv`, and one `exports://<schema>/maplith-schema.json`
+  per folder: the tables' columns, attribute numbers, types and keys, no values.
 
 **Optional: an allow-list.** `--allow <addresses>` serves only callers from
 those IP addresses or ranges.
@@ -310,7 +325,8 @@ sudo systemctl restart maplith-bridge
 ```
 
 The token file, the folder and the database role stay as they are. Read
-[CHANGELOG.md](CHANGELOG.md) first.
+[CHANGELOG.md](CHANGELOG.md) first. To be told when a release fixes a
+security issue, sign up at https://maplith.com/bridge/updates (step 4).
 
 ## Logs, and what to watch
 

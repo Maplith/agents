@@ -1,0 +1,7 @@
+node_modules
+test
+recipes
+routine
+*.md
+.git
+.github

@@ -3,18 +3,18 @@
   "name": "com.maplith/bridge",
   "title": "Maplith Bridge",
   "description": "Share a folder of data files read-only over MCP, and fill it from PostgreSQL under a read-only role.",
-  "websiteUrl": "https://github.com/Maplith/bridge",
+  "websiteUrl": "https://maplith.com/open-source?utm_source=mcp-registry&utm_medium=directory&utm_campaign=oss-bridge",
   "repository": {
-    "url": "https://github.com/Maplith/bridge",
+    "url": "https://github.com/Maplith/agents",
     "source": "github"
   },
-  "version": "1.0.0-rc.1",
+  "version": "1.1.0-rc.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "maplith-bridge",
-      "version": "1.0.0-rc.1",
+      "version": "1.1.0-rc.1",
       "runtimeHint": "npx",
       "packageArguments": [
         {

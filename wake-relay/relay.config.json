@@ -1,0 +1,21 @@
+{
+  "adapter": "claude-code-routine",
+  "name": "support-agent",
+  "paused": false,
+  "max_fires_per_hour": 30,
+  "dedupe_hours": 24,
+  "state_file": null,
+  "timezone": "UTC",
+  "routine": {
+    "fire_url": "https://api.anthropic.com/v1/claude_code/routines/trig_REPLACE_ME/fire"
+  },
+  "managed_agents": {
+    "agent_id": "agent_REPLACE_ME",
+    "agent_version": null,
+    "environment_id": "env_REPLACE_ME",
+    "vault_ids": [],
+    "max_cost_usd_cents": 100,
+    "daily_ceiling_usd_cents": null,
+    "kickoff": "Maplith woke you. Work the signals listed below: for each id, read it with Maplith, take it, do the work your instructions describe, and record what you did."
+  }
+}

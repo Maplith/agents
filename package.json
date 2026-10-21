@@ -1,6 +1,6 @@
 {
   "name": "maplith-bridge",
-  "version": "1.0.0-rc.1",
+  "version": "1.1.0-rc.1",
   "mcpName": "com.maplith/bridge",
   "description": "Share a folder of data files with your AI agent over MCP, read-only and behind a token, and fill it from PostgreSQL under a read-only role.",
   "keywords": [
@@ -13,13 +13,13 @@
     "csv",
     "ai-agents"
   ],
-  "homepage": "https://github.com/Maplith/bridge#readme",
+  "homepage": "https://maplith.com/open-source?utm_source=npm&utm_medium=directory&utm_campaign=oss-bridge",
   "bugs": {
-    "url": "https://github.com/Maplith/bridge/issues"
+    "url": "https://github.com/Maplith/agents/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Maplith/bridge.git"
+    "url": "git+https://github.com/Maplith/agents.git"
   },
   "license": "Apache-2.0",
   "author": "Maplith (https://maplith.com)",
@@ -31,7 +31,7 @@
     "node": ">=24"
   },
   "dependencies": {
-    "pg": "8.23.0"
+    "pg": "8.23.1"
   },
   "publishConfig": {
     "access": "public",

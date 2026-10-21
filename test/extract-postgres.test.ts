@@ -6,6 +6,17 @@ import { tmpdir } from 'node:os';
 import {
   CATALOG_FILE,
   RefusedError,
+  SCHEMA_FILE,
+  SCHEMA_FORMAT,
+  SYSTEM_ID_SQL,
+  databaseIdentity,
+  fullXid,
+  historyGoneBack,
+  identityBase,
+  firstEpoch,
+  nextEpoch,
+  type CatalogTable,
+  type SchemaFile,
   STATS_SQL,
   contentsSql,
   csvField,
@@ -141,7 +152,7 @@ describe('what the extractor reads and writes', () => {
   it('writes one CSV per readable table, a hidden catalog, and nothing the role may not read', async () => {
     const out = tmp();
     const { catalog } = await runAs('maplith_export', { out });
-    expect(listFiles(out)).toEqual(['shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/orders.csv']);
+    expect(listFiles(out)).toEqual(['shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/maplith-schema.json', 'shop/orders.csv']);
     expect(existsSync(join(out, CATALOG_FILE))).toBe(true);
     expect(readCatalog(out)).toEqual(JSON.parse(JSON.stringify(catalog)));
     // Column-level grant: notes is not read, not named, not counted.
@@ -182,13 +193,17 @@ describe('what the extractor reads and writes', () => {
     expect(t('customers').unique).toEqual([['email']]);
     expect(t('orders').estimated_rows).toBe(5);
     expect(t('big_orders').estimated_rows).toBeNull();
-    expect(t('orders').columns.find((c) => c.name === 'total')).toEqual({ name: 'total', type: 'numeric(10,2)', not_null: false, null_frac: 0, n_distinct: -1 });
+    // The catalog entry's transaction id (xmin) is for the next run's history check.
+    const [entry] = await query(`SELECT c.xmin::text AS rel, c.relnatts::int AS natts, a.xmin::text AS col FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'total' WHERE c.oid = 'shop.orders'::regclass`);
+    expect(t('orders').columns.find((c) => c.name === 'total')).toEqual({ name: 'total', attnum: 3, type: 'numeric(10,2)', not_null: false, null_frac: 0, n_distinct: -1, xmin: entry.col });
+    expect(t('orders').relid).toBe(Number((await query(`SELECT 'shop.orders'::regclass::oid::int AS r`))[0].r));
+    expect(t('orders')).toMatchObject({ xmin: entry.rel, natts: entry.natts });
     expect(t('orders').columns.find((c) => c.name === 'status')!.null_frac).toBeCloseTo(0.2);
     expect(t('events').order).toEqual({ by: 'all columns', columns: ['kind', 'at', 'payload'] });
     // Counts only: every column carries exactly these keys, and no value of
     // the table appears anywhere in the catalog (most_common_vals of
     // orders.status would be "cellvalue-paid").
-    for (const table of catalog.tables) for (const c of table.columns) expect(Object.keys(c).sort()).toEqual(['n_distinct', 'name', 'not_null', 'null_frac', 'type']);
+    for (const table of catalog.tables) for (const c of table.columns) expect(Object.keys(c).sort()).toEqual(['attnum', 'n_distinct', 'name', 'not_null', 'null_frac', 'type', 'xmin']);
     expect(readFileSync(join(out, CATALOG_FILE), 'utf8')).not.toMatch(/cellvalue/i);
     expect(STATS_SQL).not.toMatch(/most_common|histogram|correlation|elem/i);
   });
@@ -230,15 +245,383 @@ describe('what the extractor reads and writes', () => {
   });
 });
 
+describe('the schema file', () => {
+  it('states each table\'s file, relation, columns with attribute numbers and types, keys and estimated rows, and no value', async () => {
+    const out = tmp();
+    const { catalog } = await runAs('maplith_export', { out });
+    const text = readFileSync(join(out, 'shop', SCHEMA_FILE), 'utf8');
+    const schema = JSON.parse(text) as SchemaFile;
+    expect(schema.format).toBe(SCHEMA_FORMAT);
+    expect(schema.database).toMatch(/^[0-9a-f]{32}$/);
+    expect(schema.database).toBe(catalog.identity!.id);
+    expect(schema.tables.map((t) => t.file)).toEqual(['big_orders.csv', 'customers.csv', 'events.csv', 'orders.csv']);
+    const orders = schema.tables.find((t) => t.name === 'orders')!;
+    const attnums = await query(`SELECT attname::text AS name, attnum::int AS attnum FROM pg_attribute WHERE attrelid = 'shop.orders'::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum`);
+    expect(orders.columns.map((c) => ({ name: c.name, attnum: c.attnum }))).toEqual(attnums);
+    expect(orders).toMatchObject({ schema: 'shop', kind: 'table', estimated_rows: 5, primary_key: ['id'], relid: catalog.tables.find((t) => t.name === 'orders')!.relid });
+    // Names, numbers and types only: no statistic beyond the row estimate,
+    // no value, and the column the role may not read is not named.
+    for (const t of schema.tables) for (const c of t.columns) expect(Object.keys(c).sort()).toEqual(['attnum', 'name', 'not_null', 'type']);
+    expect(text).not.toMatch(/cellvalue|null_frac|n_distinct|notes/i);
+    // Served like any other file.
+    expect(listFiles(out)).toContain(`shop/${SCHEMA_FILE}`);
+  });
+
+  it('keeps a column\'s attribute number through RENAME COLUMN, and gives a column dropped and added again a new one', async () => {
+    await db.exec(`CREATE TABLE shop.renamed (id int PRIMARY KEY, a text, b text); INSERT INTO shop.renamed VALUES (1, 'x', 'y'); GRANT SELECT ON shop.renamed TO maplith_export;`);
+    try {
+      const attnumOf = async (name: string) => {
+        const out = tmp();
+        await runAs('maplith_export', { out });
+        const t = (JSON.parse(readFileSync(join(out, 'shop', SCHEMA_FILE), 'utf8')) as SchemaFile).tables.find((x) => x.name === 'renamed')!;
+        return t.columns.find((c) => c.name === name)?.attnum;
+      };
+      const a = await attnumOf('a');
+      await db.exec('ALTER TABLE shop.renamed RENAME COLUMN a TO a_renamed');
+      expect(await attnumOf('a_renamed')).toBe(a);
+      const b = await attnumOf('b');
+      await db.exec('ALTER TABLE shop.renamed DROP COLUMN b; ALTER TABLE shop.renamed ADD COLUMN b text; GRANT SELECT ON shop.renamed TO maplith_export;');
+      const again = await attnumOf('b');
+      expect(again).toBeGreaterThan(b!);
+    } finally {
+      await db.exec('DROP TABLE shop.renamed');
+    }
+  });
+
+  it('states the database by a digest of the server\'s system identifier, and names none when the role may not read it', async () => {
+    const out = tmp();
+    const { catalog } = await runAs('maplith_export', { out });
+    const sysId = String((await query('SELECT system_identifier::text AS s FROM pg_control_system()'))[0].s);
+    expect(catalog.identity).toMatchObject({ from: 'system_identifier' });
+    expect(catalog.identity!.id).toMatch(/^[0-9a-f]{32}$/);
+    expect(JSON.stringify(catalog)).not.toContain(sysId);
+    expect(readFileSync(join(out, 'shop', SCHEMA_FILE), 'utf8')).not.toContain(sysId);
+    // The same database, run again into the same folder: the same identity.
+    // Into another folder, whose record begins at its run: another one,
+    // since nothing the run reads tells this database from a copy of it.
+    expect((await runAs('maplith_export', { out })).catalog.identity).toEqual(catalog.identity);
+    expect((await runAs('maplith_export', { out: tmp() })).catalog.identity!.id).not.toBe(catalog.identity!.id);
+    // A role that may not run pg_control_system(): no identity at all, and
+    // no stand-in. A restore into a fresh server can give the same relation
+    // ids, and pg_dump renumbers the attribute numbers, so nothing else the
+    // role can read tells it apart: the schema file names no database, and
+    // the log says why, once.
+    const hidden: Query = async (sql, params) => {
+      const rows = await query(sql, params);
+      return sql.includes('has_function_privilege') ? rows.map((r) => ({ ...r, readable: false })) : rows;
+    };
+    const kept = tmp();
+    const first = await runAs('maplith_export', { out: kept }, hidden);
+    expect(first.catalog.identity).toBeNull();
+    expect(first.catalog).not.toHaveProperty('install_id');
+    expect(first.statements.some((x) => x.includes('pg_control_system()') && !x.includes('has_function_privilege'))).toBe(false);
+    const schema = JSON.parse(readFileSync(join(kept, 'shop', SCHEMA_FILE), 'utf8')) as SchemaFile;
+    expect(schema.database).toBeNull();
+    expect(schema.tables.map((t) => t.name)).toEqual(['big_orders', 'customers', 'events', 'orders']);
+    expect(first.lines.filter((l) => l.startsWith('database identity: not stated'))).toHaveLength(1);
+    // The next run into the same folder states none either: nothing is kept to stand in for it.
+    expect((await runAs('maplith_export', { out: kept }, hidden)).catalog.identity).toBeNull();
+    // A server that refuses the call costs the identifier, never the run:
+    // the savepoint takes the failed statement back, and the run goes on.
+    const refusing: Query = async (sql, params) => (sql === SYSTEM_ID_SQL ? query('SELECT 1 / 0 AS system_identifier') : query(sql, params));
+    const refused = await runAs('maplith_export', { out: tmp() }, refusing);
+    expect(refused.catalog.identity).toBeNull();
+    expect(refused.catalog.tables.map((t) => t.name)).toEqual(['big_orders', 'customers', 'events', 'orders']);
+    expect(refused.statements).toContain('ROLLBACK TO SAVEPOINT maplith_identity');
+    // Another database, server, timeline or reset of the server's statistics
+    // is another identity, and so is another epoch of the history; no
+    // identifier or timeline, no identity.
+    const server = { systemIdentifier: '42', timeline: '1', statsReset: '2026-10-01 00:00:00+00' };
+    const id = (s: typeof server, oid = '1', name = 'a', epoch = '') => databaseIdentity(identityBase(s, oid, name), epoch)?.id;
+    const ids = [
+      id(server),
+      id(server, '2'),
+      id(server, '1', 'b'),
+      id({ ...server, systemIdentifier: '43' }),
+      id({ ...server, timeline: '2' }),
+      id({ ...server, statsReset: '2026-10-02 00:00:00+00' }),
+      id(server, '1', 'a', firstEpoch()),
+      id(server, '1', 'a', firstEpoch()),
+    ];
+    for (const x of ids) expect(x).toMatch(/^[0-9a-f]{32}$/);
+    expect(new Set(ids).size).toBe(ids.length);
+    // A record begins with an epoch no other holds; the history going back moves it on, never back.
+    expect(firstEpoch()).toMatch(/^[0-9a-f]{16}$/);
+    const e = firstEpoch();
+    expect(nextEpoch(e, '751')).toMatch(/^[0-9a-f]{16}$/);
+    expect(nextEpoch(e, '751')).not.toBe(e);
+    expect(nextEpoch(nextEpoch(e, '751'), '751')).not.toBe(nextEpoch(e, '751'));
+    expect(identityBase({ ...server, systemIdentifier: '' }, '1', 'a')).toBeNull();
+    expect(identityBase({ ...server, timeline: '' }, '1', 'a')).toBeNull();
+    expect(identityBase({ ...server, statsReset: '' }, '1', 'a')).toBeNull();
+    expect(databaseIdentity(null)).toBeNull();
+  });
+
+  /** A server of its own with one table, the role, and a copy of its data
+   *  directory taken later (a backup). */
+  async function ownServer(): Promise<{ db: PGlite; q: Query; run: (q: Query, out: string) => Promise<{ catalog: Catalog; lines: string[] }> }> {
+    const own = new PGlite();
+    const q: Query = async (sql, params) => (await own.query<Record<string, unknown>>(sql, params as unknown[] | undefined)).rows;
+    await own.exec(`
+      CREATE ROLE maplith_export LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+      CREATE SCHEMA shop;
+      CREATE TABLE shop.orders (id int PRIMARY KEY, total numeric(10, 2), placed date);
+      INSERT INTO shop.orders VALUES (1, 10.00, '2026-01-01'), (2, 20.00, '2026-01-02');
+      GRANT USAGE ON SCHEMA shop TO maplith_export;
+      GRANT SELECT ON shop.orders TO maplith_export;`);
+    return { db: own, q, run: (rq, out) => runOn(own, rq, out) };
+  }
+  async function runOn(server: PGlite, q: Query, out: string): Promise<{ catalog: Catalog; lines: string[] }> {
+    await server.exec(`SET SESSION AUTHORIZATION ${quoteIdent('maplith_export')}`);
+    const lines: string[] = [];
+    try {
+      return { catalog: (await extract({ query: q, out, log: (l) => lines.push(l) })).catalog, lines };
+    } finally {
+      await server.exec('SET SESSION AUTHORIZATION postgres; RESET ALL;');
+    }
+  }
+  /** A copy of the data directory started as a server of its own: what a
+   *  restore from a snapshot, a base backup or a stopped server's copy
+   *  gives. The system identifier, the database's and the table's oids and
+   *  the attribute numbers are the copy's, and the attribute numbers the
+   *  later state gave out are free again. */
+  const restore = async (copy: Blob) => {
+    const restored = new PGlite({ loadDataDir: copy });
+    const q: Query = async (sql, params) => (await restored.query<Record<string, unknown>>(sql, params as unknown[] | undefined)).rows;
+    return { db: restored, q };
+  };
+  const attnums = (c: Catalog) => Object.fromEntries(c.tables.find((t) => t.name === 'orders')!.columns.map((x) => [x.attnum, x.name]));
+
+  it('names no database where the role may not read the server\'s statistics, and runs on', async () => {
+    const { db: own, q, run } = await ownServer();
+    await own.exec('REVOKE SELECT ON pg_catalog.pg_stat_bgwriter FROM PUBLIC');
+    const out = tmp();
+    const { catalog, lines } = await run(q, out);
+    expect(catalog.identity).toBeNull();
+    expect(catalog.history).toBeNull();
+    expect(catalog.tables.map((t) => t.name)).toEqual(['orders']);
+    expect(lines.filter((l) => l.startsWith('database identity: not stated'))).toHaveLength(1);
+    expect((JSON.parse(readFileSync(join(out, 'shop', SCHEMA_FILE), 'utf8')) as SchemaFile).database).toBeNull();
+    await own.close();
+  });
+
+  it('states another identity after a restore of an earlier copy and new DDL, where the reused attribute numbers name other columns', async () => {
+    const { db: original, q, run } = await ownServer();
+    const out = tmp();
+    const v1 = await run(q, out);
+    const backup = await original.dumpDataDir('none');
+    await original.exec(`ALTER TABLE shop.orders ADD COLUMN billing_email text; ALTER TABLE shop.orders ADD COLUMN shipping_email text; GRANT SELECT ON shop.orders TO maplith_export;`);
+    const v2 = await run(q, out);
+    // The history went on: the same identity, and the epoch it started with.
+    expect(v2.catalog.identity).toEqual(v1.catalog.identity);
+    expect(v2.catalog.history!.epoch).toMatch(/^[0-9a-f]{16}$/);
+    expect(v2.catalog.history!.epoch).toBe(v1.catalog.history!.epoch);
+    expect(attnums(v2.catalog)).toMatchObject({ 4: 'billing_email', 5: 'shipping_email' });
+    await original.close();
+
+    // The backup restored, and the columns added again in the other order:
+    // the same system identifier, database oid, relation id and attribute
+    // numbers, now naming the other columns.
+    const { db: restored, q: rq } = await restore(backup);
+    await restored.exec(`ALTER TABLE shop.orders ADD COLUMN shipping_email text; ALTER TABLE shop.orders ADD COLUMN billing_email text; GRANT SELECT ON shop.orders TO maplith_export;`);
+    const v3 = await runOn(restored, rq, out);
+    expect(v3.catalog.tables[0].relid).toBe(v2.catalog.tables[0].relid);
+    expect(attnums(v3.catalog)).toMatchObject({ 4: 'shipping_email', 5: 'billing_email' });
+    expect(v3.catalog.identity!.id).not.toBe(v2.catalog.identity!.id);
+    const schema = JSON.parse(readFileSync(join(out, 'shop', SCHEMA_FILE), 'utf8')) as SchemaFile;
+    expect(schema.database).toBe(v3.catalog.identity!.id);
+    await restored.close();
+  });
+
+  it('tells a restore apart by the catalog alone, where the server\'s statistics came back with the copy (a copy taken while the server was stopped)', async () => {
+    const { db: original, q, run } = await ownServer();
+    // A stopped server's copy keeps the statistics' last reset: hold it still.
+    const [{ stats_reset: kept }] = await q('SELECT stats_reset::text AS stats_reset FROM pg_stat_bgwriter');
+    const still =
+      (inner: Query): Query =>
+      async (sql, params) => {
+        const rows = await inner(sql, params);
+        return sql === SYSTEM_ID_SQL ? rows.map((r) => ({ ...r, stats_reset: kept })) : rows;
+      };
+    const out = tmp();
+    await run(still(q), out);
+    const backup = await original.dumpDataDir('none');
+    await original.exec(`ALTER TABLE shop.orders ADD COLUMN billing_email text; ALTER TABLE shop.orders ADD COLUMN shipping_email text; GRANT SELECT ON shop.orders TO maplith_export;`);
+    const v2 = await run(still(q), out);
+    // A RENAME COLUMN goes on from the history, under the same identity.
+    await original.exec(`ALTER TABLE shop.orders RENAME COLUMN placed TO placed_on;`);
+    const renamed = await run(still(q), out);
+    expect(renamed.catalog.identity).toEqual(v2.catalog.identity);
+    expect(renamed.lines.filter((l) => l.startsWith('database history:'))).toEqual([]);
+    await original.close();
+
+    const { db: restored, q: rq } = await restore(backup);
+    const rstill = still(rq);
+    // Restored, and read before any DDL (into a copy of the folder, so the
+    // run below still compares with the same previous run): the relation
+    // has fewer attribute numbers than the previous run read.
+    const before = tmp();
+    writeFileSync(join(before, CATALOG_FILE), readFileSync(join(out, CATALOG_FILE)));
+    const early = await runOn(restored, rstill, before);
+    expect(early.catalog.identity!.id).not.toBe(renamed.catalog.identity!.id);
+    expect(early.lines.filter((l) => l.startsWith('database history:'))).toEqual(['database history: shop.orders has fewer attribute numbers than at the previous run. A restore of an earlier copy does that, so this run states the database under another identity than the previous run']);
+
+    // Restored, then the columns added again in the other order before the
+    // next run: their entries were written under transaction ids the
+    // restored server gave out again, below the previous run's horizon.
+    await restored.exec(`ALTER TABLE shop.orders ADD COLUMN shipping_email text; ALTER TABLE shop.orders ADD COLUMN billing_email text; GRANT SELECT ON shop.orders TO maplith_export;`);
+    const v3 = await runOn(restored, rstill, out);
+    expect(attnums(v3.catalog)).toMatchObject({ 4: 'shipping_email', 5: 'billing_email' });
+    expect(v3.catalog.identity!.id).not.toBe(renamed.catalog.identity!.id);
+    expect(v3.lines.filter((l) => l.startsWith('database history:'))).toHaveLength(1);
+    expect(v3.catalog.history!.epoch).toMatch(/^[0-9a-f]{16}$/);
+    // A folder with no record to go on from (emptied, or another one) does
+    // not take the restored database for the one read before either: its
+    // record begins at this run.
+    expect((await runOn(restored, rstill, tmp())).catalog.identity!.id).not.toBe(renamed.catalog.identity!.id);
+    // The next run goes on from the restored history: it keeps the new epoch.
+    await restored.exec(`ALTER TABLE shop.orders RENAME COLUMN total TO amount;`);
+    const v4 = await runOn(restored, rstill, out);
+    expect(v4.catalog.identity).toEqual(v3.catalog.identity);
+    expect(v4.lines.filter((l) => l.startsWith('database history:'))).toEqual([]);
+    await restored.close();
+  });
+
+  it('states another identity in a folder whose record begins, wherever the database stands: a stopped server\'s copy restored and changed by as many transactions reaches the original\'s horizon', async () => {
+    const { db: original, q, run } = await ownServer();
+    // A stopped server's copy keeps the statistics' last reset: hold it still.
+    const [{ stats_reset: kept }] = await q('SELECT stats_reset::text AS stats_reset FROM pg_stat_bgwriter');
+    const still =
+      (inner: Query): Query =>
+      async (sql, params) => {
+        const rows = await inner(sql, params);
+        return sql === SYSTEM_ID_SQL ? rows.map((r) => ({ ...r, stats_reset: kept })) : rows;
+      };
+    const backup = await original.dumpDataDir('none');
+    const add = (name: string, k: number) => `ALTER TABLE shop.orders ADD COLUMN ${name} text; UPDATE shop.orders SET ${name} = 'buyer' || (id * ${k}) || '@shop.example.test'; GRANT SELECT ON shop.orders TO maplith_export;`;
+    await original.exec(add('billing_email', 1));
+    const v1 = await run(still(q), tmp());
+    await original.close();
+    // The backup restored into a fresh install (another folder, no record),
+    // and another column added by the same number of transactions, as a
+    // scripted migration does.
+    const { db: restored, q: rq } = await restore(backup);
+    await restored.exec(add('contact_email', 7));
+    const v2 = await runOn(restored, still(rq), tmp());
+    // Everything the run reads of the server is the same, the horizon too,
+    // and the same relation and attribute number name another column.
+    expect(v2.catalog.history!.base).toBe(v1.catalog.history!.base);
+    expect(v2.catalog.history!.horizon).toBe(v1.catalog.history!.horizon);
+    expect(v2.catalog.tables[0].relid).toBe(v1.catalog.tables[0].relid);
+    expect(attnums(v1.catalog)).toMatchObject({ 4: 'billing_email' });
+    expect(attnums(v2.catalog)).toMatchObject({ 4: 'contact_email' });
+    // Each record began with an epoch of its own: another identity.
+    expect(v2.catalog.history!.epoch).not.toBe(v1.catalog.history!.epoch);
+    expect(v2.catalog.identity!.id).not.toBe(v1.catalog.identity!.id);
+    await restored.close();
+  });
+
+  it('states another identity after a restore that has since passed the previous run\'s horizon, by the reset of the server\'s statistics; the one restore it cannot see is a stopped server\'s copy that did that', async () => {
+    const { db: original, q, run } = await ownServer();
+    // What the run read of the server's statistics, as it read it.
+    let kept: unknown;
+    const seen: Query = async (sql, params) => {
+      const rows = await q(sql, params);
+      if (sql === SYSTEM_ID_SQL) kept = rows[0].stats_reset;
+      return rows;
+    };
+    const out = tmp();
+    await run(q, out);
+    const backup = await original.dumpDataDir('none');
+    await original.exec(`ALTER TABLE shop.orders ADD COLUMN billing_email text; ALTER TABLE shop.orders ADD COLUMN shipping_email text; GRANT SELECT ON shop.orders TO maplith_export;`);
+    const v2 = await run(seen, out);
+    expect(kept).toBeTruthy();
+    await original.close();
+    const copy = tmp();
+    writeFileSync(join(copy, CATALOG_FILE), readFileSync(join(out, CATALOG_FILE)));
+
+    // Restored, then more transactions than the later state had run before
+    // the DDL: the new entries are newer than the previous run's horizon,
+    // so the catalog alone cannot tell them from a rename.
+    const { db: restored, q: rq } = await restore(backup);
+    await restored.exec('CREATE TABLE public.scratch (n int)');
+    for (let i = 0; i < 4; i++) await restored.exec(`INSERT INTO public.scratch VALUES (${i})`);
+    await restored.exec(`ALTER TABLE shop.orders ADD COLUMN shipping_email text; ALTER TABLE shop.orders ADD COLUMN billing_email text; GRANT SELECT ON shop.orders TO maplith_export;`);
+    const v3 = await runOn(restored, rq, out);
+    expect(attnums(v3.catalog)).toMatchObject({ 4: 'shipping_email', 5: 'billing_email' });
+    expect(v3.lines.filter((l) => l.startsWith('database history:'))).toEqual([]);
+    // The start from the copy reset the server's statistics: another identity.
+    expect(v3.catalog.identity!.id).not.toBe(v2.catalog.identity!.id);
+    // A copy taken while the server was stopped brings its statistics back
+    // with it. Then nothing a read-only role can read tells the restore
+    // apart, and the identity stays: the case the README names.
+    const still: Query = async (sql, params) => {
+      const rows = await rq(sql, params);
+      return sql === SYSTEM_ID_SQL ? rows.map((r) => ({ ...r, stats_reset: kept })) : rows;
+    };
+    expect((await runOn(restored, still, copy)).catalog.identity).toEqual(v2.catalog.identity);
+    await restored.close();
+  });
+
+  it('reads the history check from the catalog it kept: what tells the history went back, and what does not', () => {
+    const col = (attnum: number, name: string, xmin: string) => ({ name, attnum, type: 'text', not_null: false, null_frac: null, n_distinct: null, xmin });
+    const table = (xmin: string, natts: number, columns: ReturnType<typeof col>[], name = 'orders'): CatalogTable => ({
+      schema: 'shop', name, relid: 16400, xmin, natts, kind: 'table', file: 'shop/orders.csv', estimated_rows: null, rows_written: 0, cut: null,
+      order: { by: 'all columns', columns: [] }, columns, primary_key: null, unique: [], foreign_keys: [],
+    });
+    const prev = { history: { base: 'b', epoch: '0123456789abcdef', horizon: '800' }, tables: [table('760', 5, [col(1, 'id', '700'), col(4, 'billing_email', '760'), col(5, 'shipping_email', '760')])] } as Partial<Catalog>;
+    const check = (t: CatalogTable, next = '900') => historyGoneBack(prev, 'b', [t], next);
+    // Went on: nothing changed; a rename and a column added after the previous run.
+    expect(check(table('760', 5, [col(1, 'id', '700'), col(4, 'billing_email', '760'), col(5, 'shipping_email', '760')]))).toBeNull();
+    expect(check(table('850', 6, [col(1, 'id', '700'), col(4, 'invoice_email', '850'), col(5, 'shipping_email', '760'), col(6, 'notes', '850')]))).toBeNull();
+    // A column the previous run did not read tells nothing, and nor does one it no longer reads.
+    expect(check(table('760', 5, [col(1, 'id', '700'), col(2, 'secret', '650')]))).toBeNull();
+    // Gone back: fewer attribute numbers; an entry rewritten under the id the
+    // previous run read; an entry older than its horizon that it did not read.
+    expect(check(table('790', 3, [col(1, 'id', '700')]))).toMatch(/fewer attribute numbers/);
+    expect(check(table('760', 5, [col(1, 'id', '700'), col(4, 'shipping_email', '760'), col(5, 'billing_email', '760')]))).toMatch(/attribute 4: its catalog entry changed under the transaction id/);
+    expect(check(table('760', 5, [col(1, 'id', '700'), col(4, 'billing_email', '761'), col(5, 'shipping_email', '760')]))).toMatch(/attribute 4: its catalog entry was written before the previous run/);
+    expect(check(table('790', 5, [col(1, 'id', '700')]))).toMatch(/^shop\.orders: its catalog entry was written before/);
+    expect(check(table('760', 5, [col(1, 'id', '700')], 'returns'))).toMatch(/^shop\.returns: its catalog entry changed under/);
+    // 64-bit ids: a 32-bit id is read as the latest one below the next id.
+    expect(fullXid('5', 2n ** 32n + 10n)).toBe(2n ** 32n + 5n);
+    expect(fullXid('20', 2n ** 32n + 10n)).toBe(20n);
+    expect(fullXid('2', 900n)).toBeNull();
+    expect(check(table('760', 5, [col(1, 'id', '700'), col(4, 'billing_email', '761')]), String(2n ** 32n + 900n))).toBeNull();
+    // Nothing to compare: another base, no horizon, or no catalog.
+    expect(historyGoneBack(prev, 'other', [table('790', 3, [])], '900')).toBeNull();
+    expect(historyGoneBack({ ...prev, history: { base: 'b', epoch: '0123456789abcdef', horizon: '' } }, 'b', [table('790', 3, [])], '900')).toBeNull();
+    expect(historyGoneBack(null, 'b', [table('790', 3, [])], '900')).toBeNull();
+  });
+});
+
 describe('determinism', () => {
-  it('two runs on the same database write the same bytes', async () => {
+  it('two runs on the same database write the same bytes, and a folder whose record begins differs only in the database it states', async () => {
     const a = tmp();
     const b = tmp();
     await runAs('maplith_export', { out: a });
+    const first = snapshot(a);
+    await runAs('maplith_export', { out: a }); // a rerun into the same folder
+    expect(snapshot(a)).toEqual(first);
+    expect(Object.keys(first).sort()).toEqual([CATALOG_FILE, 'shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/maplith-schema.json', 'shop/orders.csv']);
+    // Another folder: the same CSV files; its record of the history begins
+    // with an epoch of its own, so its schema file and hidden catalog state
+    // another database, and differ in nothing else.
     await runAs('maplith_export', { out: b });
-    await runAs('maplith_export', { out: a }); // and a rerun into the same folder
-    expect(snapshot(a)).toEqual(snapshot(b));
-    expect(Object.keys(snapshot(a)).sort()).toEqual([CATALOG_FILE, 'shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/orders.csv']);
+    const other = snapshot(b);
+    const sansIdentity = (files: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(files).map(([f, text]) => {
+          if (f === CATALOG_FILE) {
+            const c = JSON.parse(text) as Catalog;
+            return [f, { ...c, identity: { ...c.identity, id: '' }, history: { ...c.history, epoch: '' } }];
+          }
+          return [f, f.endsWith(SCHEMA_FILE) ? { ...(JSON.parse(text) as SchemaFile), database: '' } : text];
+        }),
+      );
+    expect(sansIdentity(other)).toEqual(sansIdentity(first));
+    expect(readCatalog(b).identity!.id).not.toBe(readCatalog(a).identity!.id);
+    expect((JSON.parse(other[`shop/${SCHEMA_FILE}`]) as SchemaFile).database).toBe(readCatalog(b).identity!.id);
   });
 
   it('writes the same bytes whatever the session\'s settings, and whatever order the rows lie in on disk', async () => {
@@ -252,7 +635,10 @@ describe('determinism', () => {
       // Every setting a value's text form depends on, set otherwise, and the
       // rows moved on disk: an UPDATE writes a row's new version at the end.
       await db.exec(`UPDATE det.wide SET t = t WHERE id = 1; UPDATE det.loose SET b = b WHERE a = 'x';`);
+      // The next run of the same folder, written apart to compare: its
+      // history went on through the UPDATE.
       const b = tmp();
+      writeFileSync(join(b, CATALOG_FILE), readFileSync(join(a, CATALOG_FILE)));
       await db.exec(`SET TimeZone = 'Pacific/Chatham'; SET DateStyle = 'SQL, DMY'; SET IntervalStyle = 'sql_standard';
         SET extra_float_digits = -15; SET bytea_output = 'escape'; SET search_path = det, public;
         SET SESSION AUTHORIZATION det_reader`);
@@ -261,7 +647,11 @@ describe('determinism', () => {
       } finally {
         await db.exec('SET SESSION AUTHORIZATION postgres; RESET ALL;');
       }
-      const bytes = (d: string) => Object.fromEntries(Object.keys(snapshot(d)).map((f) => [f, readFileSync(join(d, f)).toString('hex')]));
+      // Every byte, but the hidden catalog's snapshot horizon: the UPDATE
+      // took a transaction id, so the second run's horizon is later.
+      const horizon = (d: string) => BigInt(readCatalog(d).history!.horizon);
+      expect(horizon(b)).toBeGreaterThan(horizon(a));
+      const bytes = (d: string) => Object.fromEntries(Object.keys(snapshot(d)).map((f) => [f, (f === CATALOG_FILE ? Buffer.from(JSON.stringify({ ...readCatalog(d), history: { ...readCatalog(d).history, horizon: '' } })) : readFileSync(join(d, f))).toString('hex')]));
       expect(bytes(b)).toEqual(bytes(a));
       const wide = readFileSync(join(a, 'det/wide.csv'), 'utf8');
       // The fixed settings, as written: UTC, ISO dates, hex bytea, shortest floats.
@@ -348,7 +738,7 @@ describe('what the extractor must never do', () => {
     const out = tmp();
     const { statements, lines } = await runAs('maplith_export', { out });
     for (const sql of statements) {
-      expect(sql).toMatch(/^(SELECT|WITH|SET|BEGIN|ROLLBACK)\b/);
+      expect(sql).toMatch(/^(SELECT|WITH|SET|BEGIN|ROLLBACK|SAVEPOINT|RELEASE SAVEPOINT)\b/);
       // Outside quoted identifiers and string literals: no write, DDL, COPY, lock or call.
       const bare = sql.replace(/"(?:[^"]|"")*"/g, '""').replace(/'(?:[^']|'')*'/g, "''");
       expect(bare).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|MERGE|CREATE|DROP|ALTER|COPY|GRANT|REVOKE|LOCK|CALL|DO|VACUUM|ANALYZE|REFRESH|NEXTVAL|SETVAL|LO_\w+|DBLINK\w*|PG_\w*FILE\w*)\b/i);
@@ -611,7 +1001,7 @@ describe('what the extractor must never do', () => {
       const { lines, catalog } = await runAs('maplith_export', { out });
       expect(lines).toContain('shop.remote: skipped (a foreign table: a read there runs on another server)');
       expect(catalog.tables.map((t) => t.name)).not.toContain('remote');
-      expect(listFiles(out)).toEqual(['shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/orders.csv']);
+      expect(listFiles(out)).toEqual(['shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/maplith-schema.json', 'shop/orders.csv']);
     } finally {
       await db.exec('DROP FOREIGN TABLE shop.remote; DROP SERVER mx_srv; DROP FOREIGN DATA WRAPPER mx_fdw;');
     }
@@ -709,8 +1099,10 @@ describe('what the extractor must never do', () => {
     await db.exec('REVOKE SELECT ON shop.events FROM maplith_export');
     try {
       const { lines } = await runAs('maplith_export', { out });
-      expect(listFiles(out)).toEqual(['crm/deals.csv', 'shop/big_orders.csv', 'shop/customers.csv', 'shop/orders.csv']);
+      expect(listFiles(out)).toEqual(['crm/deals.csv', 'shop/big_orders.csv', 'shop/customers.csv', 'shop/maplith-schema.json', 'shop/orders.csv']);
       expect(lines).toContain('shop/events.csv: removed (its table is no longer readable)');
+      const schema = JSON.parse(readFileSync(join(out, 'shop', SCHEMA_FILE), 'utf8')) as SchemaFile;
+      expect(schema.tables.map((t) => t.file)).toEqual(['big_orders.csv', 'customers.csv', 'orders.csv']);
     } finally {
       await db.exec('GRANT SELECT ON shop.events TO maplith_export');
     }
@@ -726,8 +1118,10 @@ describe('what the extractor must never do', () => {
   it('puts every table under one system when asked', async () => {
     const out = tmp();
     await runAs('maplith_export', { out, system: 'bi' });
-    expect(listFiles(out)).toEqual(['bi/shop.big_orders.csv', 'bi/shop.customers.csv', 'bi/shop.events.csv', 'bi/shop.orders.csv']);
+    expect(listFiles(out)).toEqual(['bi/maplith-schema.json', 'bi/shop.big_orders.csv', 'bi/shop.customers.csv', 'bi/shop.events.csv', 'bi/shop.orders.csv']);
     expect(existsSync(join(out, 'bi', CATALOG_FILE))).toBe(true);
+    const schema = JSON.parse(readFileSync(join(out, 'bi', SCHEMA_FILE), 'utf8')) as SchemaFile;
+    expect(schema.tables.map((t) => t.file)).toEqual(['shop.big_orders.csv', 'shop.customers.csv', 'shop.events.csv', 'shop.orders.csv']);
   });
 
   it('quotes fields as COPY does', () => {
@@ -802,7 +1196,7 @@ describe('the credential: never logged, never written, never sent', () => {
       await cli(envName, 'maplith_export', 'query'),
     ];
     expect(cases.map((c) => c.code)).toEqual([0, 0, 1, 1, 1]);
-    expect(cases[0].lines.at(-1)).toMatch(/^OK: wrote 4 files to /);
+    expect(cases[0].lines.at(-1)).toMatch(/^OK: wrote 5 files to /);
     expect(cases[1].lines.at(-1)).toBe('OK: the role is read-only and can read 4 tables. Nothing was written.');
     expect(cases[2].lines.join('\n')).toMatch(/^Refusing to run/);
     expect(cases[3].lines.join('\n')).toContain('password authentication failed');
