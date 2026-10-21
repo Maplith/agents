@@ -201,8 +201,8 @@ describe('the workflows', () => {
   const dir = join(ROOT, '.github/workflows');
   const workflows = Object.fromEntries(readdirSync(dir).map((f) => [f, readFileSync(join(dir, f), 'utf8')]));
 
-  it('are the four of a release: CI, release, CodeQL and the Scorecard', () => {
-    expect(Object.keys(workflows).sort()).toEqual(['ci.yml', 'codeql.yml', 'release.yml', 'scorecard.yml']);
+  it('are the four of a release: CI, release, CodeQL and the Scorecard, and the wake relay\'s tests', () => {
+    expect(Object.keys(workflows).sort()).toEqual(['ci.yml', 'codeql.yml', 'release.yml', 'scorecard.yml', 'wake-relay.yml']);
   });
 
   it('pin every action by a full commit, with its version beside it', () => {
