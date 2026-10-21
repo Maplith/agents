@@ -46,7 +46,8 @@ you report, if you can.
 
 ## Scope
 
-The Bridge's code (`bridge.ts`, `serve.ts`, `extract-postgres.ts`), its
+The Bridge's code (`bridge.ts`, `serve.ts`, `stdio.ts`, `extract-postgres.ts`,
+and `glama-stdio.ts`, the stdio entry for MCP directories), its
 release workflow and the dependencies pinned in its lockfile. For example:
 reading a file outside the served folder, any write, getting past the token,
 the rate limit, the allow-list or the binding rules, the database password

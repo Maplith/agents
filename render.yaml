@@ -1,0 +1,39 @@
+# One-click deploy on Render: https://render.com/deploy?repo=https://github.com/Maplith/agents
+#
+# Render reads this Blueprint at the root of the repository; the relay itself
+# is the wake-relay folder, so the Dockerfile and the build context are named
+# from the root.
+#
+# No plan is named, so Render uses its default paid one. Do not pick the free
+# plan: a free service goes to sleep after 15 minutes without traffic and would
+# be asleep when a wake-up arrives.
+#
+# The settings below are asked for once, when the Blueprint is created. The
+# signing secret does not exist until you make the wake-up in Maplith, so enter
+# any text of 16 characters or more now and replace it afterwards (see
+# routine/SETUP.md, steps 4 and 5).
+services:
+  - type: web
+    name: maplith-wake-relay
+    runtime: docker
+    dockerfilePath: ./wake-relay/Dockerfile
+    dockerContext: ./wake-relay
+    region: frankfurt
+    healthCheckPath: /healthz
+    # A push to the repository must not restart your relay by itself.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: RELAY_ADAPTER
+        value: claude-code-routine
+      # The address the routine's API trigger shows.
+      - key: RELAY_ROUTINE_FIRE_URL
+        sync: false
+      # The routine's API token. It goes here and nowhere else.
+      - key: ROUTINE_TOKEN
+        sync: false
+      # The wake-up's signing secret, from Maplith.
+      - key: MAPLITH_WAKE_SECRET
+        sync: false
+      # Optional: an https address that takes a JSON POST, for alerts.
+      - key: ALERT_WEBHOOK_URL
+        sync: false

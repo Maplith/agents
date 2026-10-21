@@ -1,0 +1,44 @@
+name: Wake relay
+
+# The relay in wake-relay/: its tests on Node.js 24 on every push to main and
+# every pull request that touches it, and once a week as well, so a new
+# Node.js release that changes behaviour fails here first. The sign-off on
+# every commit is checked by ci.yml for every pull request.
+
+on:
+  push:
+    branches: [main]
+    paths: ['wake-relay/**', 'render.yaml', '.github/workflows/wake-relay.yml']
+  pull_request:
+    paths: ['wake-relay/**', 'render.yaml', '.github/workflows/wake-relay.yml']
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions: {}
+
+concurrency:
+  group: wake-relay-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Wake relay tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: wake-relay
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # There is nothing to install: the relay has no dependencies.
+      - name: Tests
+        run: npm test

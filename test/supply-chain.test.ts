@@ -37,7 +37,7 @@ describe('the package manifest', () => {
     expect(pkg.type).toBe('module');
     expect(pkg.engines).toEqual({ node: '>=24' });
     // Provenance names the repository the package was built from.
-    expect(pkg.repository).toEqual({ type: 'git', url: 'git+https://github.com/Maplith/bridge.git' });
+    expect(pkg.repository).toEqual({ type: 'git', url: 'git+https://github.com/Maplith/agents.git' });
     expect(pkg.publishConfig).toEqual({ access: 'public', provenance: true });
   });
 
@@ -201,8 +201,8 @@ describe('the workflows', () => {
   const dir = join(ROOT, '.github/workflows');
   const workflows = Object.fromEntries(readdirSync(dir).map((f) => [f, readFileSync(join(dir, f), 'utf8')]));
 
-  it('are the four of a release: CI, release, CodeQL and the Scorecard', () => {
-    expect(Object.keys(workflows).sort()).toEqual(['ci.yml', 'codeql.yml', 'release.yml', 'scorecard.yml']);
+  it('are the four of a release: CI, release, CodeQL and the Scorecard, and the wake relay\'s tests', () => {
+    expect(Object.keys(workflows).sort()).toEqual(['ci.yml', 'codeql.yml', 'release.yml', 'scorecard.yml', 'wake-relay.yml']);
   });
 
   it('pin every action by a full commit, with its version beside it', () => {

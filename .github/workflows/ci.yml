@@ -62,6 +62,9 @@ jobs:
           cmp "$RUNNER_TEMP"/a/*.tgz "$RUNNER_TEMP"/b/*.tgz
           cat "$RUNNER_TEMP"/a/*.sha256
 
+      - name: The plugin's skill zip is its SKILL.md
+        run: node plugins/maplith/scripts/build-skill-zip.mjs --check
+
   postgres:
     name: PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-24.04

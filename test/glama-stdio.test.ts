@@ -16,6 +16,7 @@ import { sseReader } from '../glama-stdio.ts';
  *  it: a child process, spoken to over its stdin. */
 
 const ENTRY = fileURLToPath(new URL('../glama-stdio.ts', import.meta.url));
+const RELAY = fileURLToPath(new URL('../stdio.ts', import.meta.url));
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 /** The token's shape: the only 64 lowercase hexadecimal characters the process holds. */
 const TOKEN_SHAPE = /[0-9a-f]{64}/;
@@ -154,16 +155,22 @@ describe('the stdio entry for MCP directories', () => {
     expect(readdirSync(run.temp)).toEqual([]);
   }, 30_000);
 
-  it('uses Node.js alone and the two files beside it, talks only to its own server on 127.0.0.1, and starts nothing else', () => {
-    const text = readFileSync(ENTRY, 'utf8');
-    const imports = [...text.matchAll(/^import (?:type )?.* from '([^']+)';$/gm)].map((m) => m[1]);
-    expect(imports.filter((m) => !m.startsWith('node:')).sort()).toEqual(['./bridge.ts', './serve.ts']);
-    expect(text).not.toMatch(/node:(child_process|vm|worker_threads|dgram|dns|https|net)'|\bfetch\(|\beval\(|new Function\(|await import\(/);
+  it('uses Node.js alone and the files beside it, talks only to its own server on 127.0.0.1, and starts nothing else', () => {
+    const imports = (file: string) => [...readFileSync(file, 'utf8').matchAll(/^import (?:type )?.* from '([^']+)';$/gm)].map((m) => m[1]).filter((m) => !m.startsWith('node:')).sort();
+    expect(imports(ENTRY)).toEqual(['./bridge.ts', './stdio.ts']);
+    expect(imports(RELAY)).toEqual(['./serve.ts']);
+    for (const file of [ENTRY, RELAY]) {
+      expect(readFileSync(file, 'utf8')).not.toMatch(/node:(child_process|vm|worker_threads|dgram|dns|https|net)'|\bfetch\(|\beval\(|new Function\(|await import\(/);
+    }
     // One server, bound to loopback, and every request sent to the address it gave.
+    const text = readFileSync(RELAY, 'utf8');
     expect(text.match(/\bserve\(/g)).toHaveLength(1);
     expect(text).toContain("0, '127.0.0.1')");
     expect(text.match(/\brequest\(/g)).toHaveLength(1);
     expect(text).toContain("request(url, { method: 'POST', agent, headers }, ok)");
+    // It removes a folder only when it made it.
+    expect(text.match(/\brmSync\(/g)).toHaveLength(2);
+    for (const line of text.split('\n').filter((l) => /\brmSync\(/.test(l))) expect(line).toMatch(/if \(temporary\)/);
   });
 
   it('takes no argument: it is not a way to share a folder', async () => {

@@ -1,7 +1,30 @@
-# Maplith Bridge
+# Maplith for your agents
 
-[![CI](https://github.com/Maplith/bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Maplith/bridge/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Maplith/bridge/badge)](https://scorecard.dev/viewer/?uri=github.com/Maplith/bridge)
+[![CI](https://github.com/Maplith/agents/actions/workflows/ci.yml/badge.svg)](https://github.com/Maplith/agents/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Maplith/agents/badge)](https://scorecard.dev/viewer/?uri=github.com/Maplith/agents)
+[![Built by Maplith](https://img.shields.io/badge/built%20by-Maplith-1f2937)](https://maplith.com/open-source?utm_source=github&utm_medium=profile&utm_campaign=oss-bridge)
+
+[Maplith](https://maplith.com) maps how a company's systems fit together, so
+any AI agent can find the data it needs, by which key, and how far to trust
+each step. This repository holds the open-source parts that run on your side,
+next to your agent and your data. One product, three parts:
+
+| Part | What it does | Where |
+|---|---|---|
+| **Claude plugin** | Maplith in Claude Code with one install: the hosted map over MCP (you sign in; nothing is pasted), Maplith Bridge for a local folder, and a skill that says when and how to use them. | [`plugins/maplith/`](plugins/maplith/) |
+| **Maplith Bridge** | Connect your database to your AI agent, read-only, without giving anyone your password. | this page, from [Quick start](#quick-start) |
+| **Maplith Wake** | Start your own Claude agent the moment there is work for it, from a small relay in your own account. | [`wake-relay/`](wake-relay/) |
+
+Install the plugin in Claude Code:
+
+```text
+/plugin marketplace add Maplith/agents
+/plugin install maplith@maplith
+```
+
+Everything here is Apache-2.0.
+
+# Maplith Bridge
 
 Connect your database to your AI agent, read-only, without giving anyone your
 password.
@@ -16,7 +39,7 @@ that folder from PostgreSQL under a database role that can only read.
 - **Your password stays with you.** The database password never leaves the
   machine the extractor runs on, and the server that faces the network never
   holds it.
-- **Small enough to read.** Three files of TypeScript. The server runs on
+- **Small enough to read.** Four files of TypeScript. The server runs on
   Node.js alone; the extractor has one dependency, the PostgreSQL client,
   pinned.
 
@@ -29,8 +52,8 @@ how your systems fit together.
 You need Node.js 24 or newer.
 
 ```sh
-npx --yes maplith-bridge@1.0.0-rc.1 rotate-token
-npx --yes maplith-bridge@1.0.0-rc.1 serve --dir ./exports
+npx --yes maplith-bridge@1.1.0-rc.1 rotate-token
+npx --yes maplith-bridge@1.1.0-rc.1 serve --dir ./exports
 ```
 
 The first command writes a random token to `maplith-bridge.token`, readable
@@ -47,11 +70,43 @@ To fill the folder from PostgreSQL, under a read-only role:
 
 ```sh
 PGHOST=db.example.com PGDATABASE=shop PGUSER=bridge_reader \
-  npx --yes maplith-bridge@1.0.0-rc.1 extract postgres --out ./exports --check
+  npx --yes maplith-bridge@1.1.0-rc.1 extract postgres --out ./exports --check
 ```
 
 `--check` verifies the role and writes nothing. Run it again without `--check`
 to write one CSV file per table.
+
+Beside the CSV files of each folder, the extractor writes `maplith-schema.json`,
+which the server shares like any other file: for each table, its file, its
+columns with their PostgreSQL attribute numbers and types, its keys and its
+estimated row count. It holds names and numbers, never a value, and names the
+database only by a digest of its identity (below). A reader can tell
+from it that a renamed column is the same column (its attribute number stays)
+and that a column dropped and added again is a new one (it gets a new number).
+
+A restore keeps the relation ids and attribute numbers it had, and the next
+`ADD COLUMN` can reuse a number that a later state had given another column.
+So the digest is made of the server's system identifier and timeline, when
+its statistics were last reset, the database's id and name, and an epoch the
+extractor keeps in the folder, and it changes when the extractor sees that the
+database's history did not go on from its last run: another server or
+database, a new timeline (a point-in-time recovery or a promotion), a reset of
+the server's statistics (every start that has to recover resets them: after a
+crash, or from a restored snapshot or base backup), a table or column whose
+catalog entry was written again before that run (an earlier copy restored,
+then changed), or no record of that run in the folder (a first run, a new
+install, another folder: its record starts with an epoch of its own, drawn at
+random, so it never states the digest another folder stated). One restore goes
+unseen: a copy of the data directory taken while the server was stopped and
+started again as it was, changed only once its transaction counter had passed
+where the original's stood at the extractor's last run (or restored together
+with the extractor's folder). The same numbers can then name other columns
+under the same digest.
+
+Where the role may not read the system identifier, the timeline or when the
+statistics were last reset, the file names no database (`"database": null`),
+and its numbers describe that run only: a restore into a fresh server can give
+the same relation ids again, and it renumbers the attribute numbers.
 
 Run any command with `--help` for every option.
 
@@ -85,11 +140,11 @@ digest of it must match the file from GitHub: the two `sha512-` lines below
 are equal.
 
 ```sh
-sha256sum -c maplith-bridge-1.0.0-rc.1.tgz.sha256
-echo "sha512-$(openssl dgst -sha512 -binary maplith-bridge-1.0.0-rc.1.tgz | openssl base64 -A)"
-npm view maplith-bridge@1.0.0-rc.1 dist.integrity
-gh attestation verify maplith-bridge-1.0.0-rc.1.tgz --repo Maplith/bridge \
-  --bundle maplith-bridge-1.0.0-rc.1.tgz.sigstore.json
+sha256sum -c maplith-bridge-1.1.0-rc.1.tgz.sha256
+echo "sha512-$(openssl dgst -sha512 -binary maplith-bridge-1.1.0-rc.1.tgz | openssl base64 -A)"
+npm view maplith-bridge@1.1.0-rc.1 dist.integrity
+gh attestation verify maplith-bridge-1.1.0-rc.1.tgz --repo Maplith/agents \
+  --bundle maplith-bridge-1.1.0-rc.1.tgz.sigstore.json
 ```
 
 After installing from npm, `npm audit signatures` checks the registry
@@ -109,6 +164,23 @@ reply of at most 8 MB. `GET /healthz` answers 204 for a health check.
 
 File contents come from your systems. Tell your agent to treat them as data,
 never as instructions; the Bridge says the same in its `instructions`.
+
+## Use it from an agent on this machine
+
+An agent that starts its MCP servers as local commands, such as Claude Code,
+can start the Bridge itself:
+
+```sh
+npx -y maplith-bridge stdio --dir ./exports
+```
+
+`stdio` serves the folder to that one agent over its stdin and stdout: the
+same server as `serve`, on `127.0.0.1` only, behind a token that lives only
+in its process. There is no token file and nothing to type. The folder comes
+from `--dir` or `EXPORT_DIR`; without one it serves an empty folder and says
+how to name one. The Maplith plugin for Claude Code starts it this way, with
+the folder from `MAPLITH_BRIDGE_DIR`. To share a folder with Maplith or with
+an agent on another machine, use `serve`.
 
 ## For MCP directories
 

@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { RefusedError, extract, runCli, type PgClient, type PgClientClass } from '../extract-postgres.ts';
+import { CATALOG_FILE, RefusedError, extract, runCli, type PgClient, type PgClientClass } from '../extract-postgres.ts';
 
 /** The extractor against a real PostgreSQL server, not PGlite: the
  *  refusals and the determinism of the PGlite tests, run through the command
@@ -48,8 +48,16 @@ function snapshot(dir: string): Record<string, string> {
   return out;
 }
 const csvOnly = (s: Record<string, string>) => Object.fromEntries(Object.entries(s).filter(([f]) => f.endsWith('.csv')));
-/** Every file under `dir`, byte for byte. */
-const bytes = (dir: string) => Object.fromEntries(Object.keys(snapshot(dir)).map((f) => [f, readFileSync(join(dir, f)).toString('hex')]));
+/** The hidden catalog's snapshot horizon moves with any transaction on the
+ *  server that takes an id (an UPDATE, an autoanalyze), so it is set aside. */
+const steady = (f: string, text: string) => {
+  if (f !== CATALOG_FILE) return text;
+  const c = JSON.parse(text);
+  return JSON.stringify({ ...c, history: c.history && { ...c.history, horizon: '' } });
+};
+/** Every file under `dir`, byte for byte, the horizon set aside. */
+const bytes = (dir: string) => Object.fromEntries(Object.keys(snapshot(dir)).map((f) => [f, Buffer.from(steady(f, readFileSync(join(dir, f), 'utf8'))).toString('hex')]));
+const steadyFiles = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([f, t]) => [f, steady(f, t)]));
 
 /** Two tables with every kind of value whose text form a session setting
  *  could change, edge values included, and one with no key, duplicate rows
@@ -103,8 +111,11 @@ describe.skipIf(!ADMIN_URL)('the extractor against a real PostgreSQL server', ()
   /** The command line, as a person runs it, logged in as `name`. The
    *  driver reads the PG* variables from the process's own environment, as it
    *  does in real use, so they are set there for the one run. */
-  async function cli(name: string, args: string[] = [], env: Record<string, string | undefined> = {}) {
+  /** One run into a new folder; `after`: a folder whose hidden catalog it
+   *  starts from, as the next run of that folder would. */
+  async function cli(name: string, args: string[] = [], env: Record<string, string | undefined> = {}, after?: string) {
     const out = tmp();
+    if (after) copyFileSync(join(after, CATALOG_FILE), join(out, CATALOG_FILE));
     const stdout: string[] = [];
     const stderr: string[] = [];
     const password = passwords.get(name) ?? '';
@@ -215,11 +226,11 @@ describe.skipIf(!ADMIN_URL)('the extractor against a real PostgreSQL server', ()
   describe('determinism', () => {
     it('writes the cells as COPY does, and two runs write the same bytes', async () => {
       const a = await cli('mx_export');
-      const b = await cli('mx_export');
+      const b = await cli('mx_export', [], {}, a.out);
       expect(a.code).toBe(0);
-      expect(a.stdout.at(-1)).toMatch(/^OK: wrote 4 files to /);
-      expect(Object.keys(a.files).sort()).toEqual(['.maplith-extract.json', 'shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/orders.csv']);
-      expect(a.files).toEqual(b.files);
+      expect(a.stdout.at(-1)).toMatch(/^OK: wrote 5 files to /);
+      expect(Object.keys(a.files).sort()).toEqual(['.maplith-extract.json', 'shop/big_orders.csv', 'shop/customers.csv', 'shop/events.csv', 'shop/maplith-schema.json', 'shop/orders.csv']);
+      expect(steadyFiles(a.files)).toEqual(steadyFiles(b.files));
       expect(a.files['shop/customers.csv']).toBe(
         [
           'id,email,name,vip,created',
@@ -265,9 +276,10 @@ describe.skipIf(!ADMIN_URL)('the extractor against a real PostgreSQL server', ()
       for (const setting of ["TimeZone = 'Pacific/Chatham'", "DateStyle = 'SQL, DMY'", "IntervalStyle = 'sql_standard'", 'extra_float_digits = -15', "bytea_output = 'escape'", "lc_monetary = 'C'", 'search_path = det, public']) {
         await sql(`ALTER ROLE mx_det SET ${setting}`);
       }
-      const b = await cli('mx_det', [], { PGOPTIONS: '-c TimeZone=Asia/Kathmandu' });
+      // The next run of the same folder: its history went on through the UPDATE.
+      const b = await cli('mx_det', [], { PGOPTIONS: '-c TimeZone=Asia/Kathmandu' }, a.out);
       expect(b.code).toBe(0);
-      expect(Object.keys(a.files).sort()).toEqual(['.maplith-extract.json', 'det/loose.csv', 'det/wide.csv', 'shop/orders.csv']);
+      expect(Object.keys(a.files).sort()).toEqual(['.maplith-extract.json', 'det/loose.csv', 'det/maplith-schema.json', 'det/wide.csv', 'shop/maplith-schema.json', 'shop/orders.csv']);
       expect(bytes(b.out)).toEqual(bytes(a.out));
       expect(a.files['det/wide.csv']).toContain(',2026-03-29 00:30:00+00,');
       expect(a.files['det/wide.csv']).toContain(',\\xdeadbeef,');

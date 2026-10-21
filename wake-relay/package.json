@@ -1,0 +1,26 @@
+{
+  "name": "maplith-wake-relay",
+  "version": "1.0.0",
+  "description": "Maplith Wake: turns a signed Maplith wake-up into a start of your own Claude agent: a Claude Code routine or a Managed Agents session. No dependencies.",
+  "keywords": ["maplith", "wake-up", "webhook", "claude-code", "routines", "managed-agents", "mcp"],
+  "homepage": "https://maplith.com/open-source?utm_source=npm&utm_medium=directory&utm_campaign=oss-wake",
+  "bugs": {
+    "url": "https://github.com/Maplith/agents/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maplith/agents.git",
+    "directory": "wake-relay"
+  },
+  "license": "Apache-2.0",
+  "author": "Maplith (https://maplith.com)",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.mjs",
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

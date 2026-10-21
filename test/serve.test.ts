@@ -22,7 +22,8 @@ import {
   type FailureLimit,
   type ServeOptions,
 } from '../serve.ts';
-import { DEFAULT_TOKEN_FILE, MAX_TOKEN_FILE, helpText, rotateToken, runBridge, tokenFileProblem, tokenFromFile, tokenWeakness, version, type Io } from '../bridge.ts';
+import { DEFAULT_TOKEN_FILE, MAX_TOKEN_FILE, UPDATES_LINE,
+  ABOUT_LINE, helpText, rotateToken, runBridge, tokenFileProblem, tokenFromFile, tokenWeakness, version, type Io } from '../bridge.ts';
 
 /** The server and the command line, held to the threat model: one describe
  *  per row it touches, plus the two tools and the command line.
@@ -565,6 +566,16 @@ describe('rotate-token: one command, the token never printed unless asked', () =
     const token = readFileSync(join(d, 't'), 'utf8').trim();
     expect(out.filter((l) => l.includes(token))).toEqual([token]);
     expect(err.join('\n')).toMatch(/printed once/);
+    // The token stays the last line, for a script that reads it.
+    expect(out.at(-1)).toBe(token);
+  });
+
+  it('points to the page for security notices once, after the new token is written', async () => {
+    const d = tmp('bridge-rot-');
+    const { out, io } = capture();
+    await runBridge(['rotate-token', '--token-file', join(d, 't')], {}, io, d);
+    expect(out.filter((l) => l === UPDATES_LINE)).toHaveLength(1);
+    expect(out.at(-1)).toBe(UPDATES_LINE);
   });
 
   it('a running Bridge takes the new token without a restart, and refuses the old one', async () => {
@@ -694,6 +705,21 @@ describe('bridge serve, the command line', () => {
     expect(info).toEqual({ name: 'maplith-bridge', version: version() });
   });
 
+  it('points to the page for security notices once when a server starts, and asks nothing', async () => {
+    const { d, dir, file } = setup();
+    const { out, err, io } = capture();
+    const r = await runBridge(['serve', '--dir', dir, '--token-file', file, '--port', '0'], {}, io, d);
+    servers.push(r.server!);
+    expect(UPDATES_LINE).toBe('Security notices and release news: https://maplith.com/bridge/updates');
+    expect(out.filter((l) => l === UPDATES_LINE)).toHaveLength(1);
+    // Who makes it: one line, a tagged link to maplith.com/open-source, after the updates line.
+    expect(ABOUT_LINE).toBe('Maplith Bridge is open source, made by Maplith: https://maplith.com/open-source?utm_source=bridge-cli&utm_medium=cli&utm_campaign=oss-bridge');
+    expect(out.filter((l) => l === ABOUT_LINE)).toHaveLength(1);
+    expect(out.indexOf(ABOUT_LINE)).toBe(out.indexOf(UPDATES_LINE) + 1);
+    // A link only: no question is asked and no address is taken.
+    expect([...out, ...err].join('\n')).not.toMatch(/@|your email|\?\s*$/im);
+  });
+
   it('refuses a missing, shared or misplaced token file, and takes no token on the command line', async () => {
     const { d, dir, file } = setup();
     const run = async (argv: string[]) => {
@@ -800,13 +826,14 @@ describe('no runtime dependency for the server', () => {
   const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
   const imports = (text: string) => [...text.matchAll(/^import (?:type )?.* from '([^']+)';$/gm)].map((m) => m[1]).sort();
 
-  it('serve.ts imports Node only; bridge.ts imports Node and the two files beside it', () => {
+  it('serve.ts imports Node only; stdio.ts Node and serve.ts; bridge.ts Node and the three files beside it', () => {
     expect(imports(src('serve.ts')).every((m) => m.startsWith('node:'))).toBe(true);
-    expect(imports(src('bridge.ts')).filter((m) => !m.startsWith('node:'))).toEqual(['./extract-postgres.ts', './serve.ts']);
+    expect(imports(src('stdio.ts')).filter((m) => !m.startsWith('node:'))).toEqual(['./serve.ts']);
+    expect(imports(src('bridge.ts')).filter((m) => !m.startsWith('node:'))).toEqual(['./extract-postgres.ts', './serve.ts', './stdio.ts']);
   });
 
   it('neither starts a process, evaluates text, nor calls out', () => {
-    for (const f of ['serve.ts', 'bridge.ts']) {
+    for (const f of ['serve.ts', 'stdio.ts', 'bridge.ts']) {
       expect(src(f)).not.toMatch(/node:(child_process|vm|worker_threads|dgram|dns)|\bfetch\(|\beval\(|new Function\(|await import\(/);
     }
     // node:net is there for address lists only, never a connection.

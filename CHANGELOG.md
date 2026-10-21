@@ -8,6 +8,69 @@ follows [semantic versioning](https://semver.org).
 
 ### Added
 
+- `stdio`: serves a folder to the agent that started the command, over its
+  stdin and stdout, for agents that run their MCP servers as local commands,
+  such as Claude Code. It is the same server as `serve`, on `127.0.0.1` only,
+  behind a token that lives only in its process: no token file, nothing to
+  type, nothing printed. The folder comes from `--dir` or `EXPORT_DIR`;
+  without one it serves an empty folder of its own. A folder you name is never
+  changed or removed.
+- When a server starts it prints one more line: that the Bridge is open source,
+  made by Maplith, with a link to the page about it. Nothing is asked and
+  nothing is sent.
+
+### Changed
+
+- The package's homepage is maplith.com/open-source.
+
+## [1.1.0-rc.1] - 2026-10-17
+
+### Added
+
+- A schema file. Beside the CSV files of each folder it fills, the extractor
+  writes `maplith-schema.json` (format `maplith-schema/1`), which the server
+  shares like any other file: the database's identity, and for each table its
+  file, its relation id, its columns with their attribute numbers, declared
+  types and whether they may be empty, its primary, unique and foreign keys,
+  and its estimated row count. Names, numbers and types only, never a value.
+  PostgreSQL keeps a column's attribute number through `RENAME COLUMN` and
+  gives a column dropped and added again a new one, so a reader can tell a
+  renamed column from a new one.
+- The database's identity in the schema file is a digest of the server's
+  system identifier and timeline, when its statistics were last reset, the
+  database's id and its name, and an epoch the extractor draws at random
+  where a folder's record begins and moves on when its run finds the
+  database's history gone back. A restore keeps the relation ids and
+  attribute numbers it had, and the next `ADD COLUMN` can reuse a number
+  that a later state had given another column, so the identity changes with
+  another server or database, a new timeline (a point-in-time recovery or a
+  promotion), a reset of the statistics (every start that has to recover
+  resets them: after a crash, or from a restored snapshot or base backup), a
+  table or column whose catalog entry was written again before the previous
+  run, and a folder with no record of a previous run (its epoch is its own,
+  so it never states the identity another folder stated). One restore goes
+  unseen: a copy taken while the server was stopped and started again as it
+  was, changed only once its transaction counter had passed where the
+  original's stood at the previous run (or restored together with the
+  extractor's folder).
+  Where the role may not read the system identifier, the timeline or when
+  the statistics were last reset (some managed servers revoke
+  `pg_control_system()`), the schema file names no database
+  (`"database": null`) and the extractor says so once: nothing else a
+  read-only role can read tells a restored database apart, since a fresh
+  server can hand out the same relation ids again and `pg_dump` renumbers
+  the attribute numbers without the gaps that dropped columns left. The
+  file's relation ids and attribute numbers then describe that run only.
+- The hidden catalog records each table's relation id and attribute count,
+  each column's attribute number, the transaction ids that last wrote their
+  catalog entries and the run's snapshot horizon, for the next run's check
+  that the history went on.
+- `rotate-token`, and `serve` when it starts, print one line:
+  "Security notices and release news: https://maplith.com/bridge/updates".
+  Signing up there is optional and done by a person with their own address;
+  the Bridge still sends nothing anywhere. RUNBOOK.md and
+  INSTALL-WITH-YOUR-AGENT.md carry the same line, and the install prompt asks
+  the person instead of filling in an address.
 - `glama-stdio.ts`, for MCP directories that build the repository and
   inspect a server over stdio, such as Glama: it serves an empty folder of
   its own with the Bridge's own server on `127.0.0.1`, behind a random token
@@ -15,6 +78,13 @@ follows [semantic versioning](https://semver.org).
   and stdout and that server. It takes no argument, shares no data, and
   removes its folder when stdin ends or on SIGTERM. It is in the repository,
   not in the npm package. README.md, "For MCP directories", has the settings.
+
+### Security
+
+- The PostgreSQL client `pg` moves from 8.23.0 to 8.23.1. When the database
+  is reached by IP address over TLS, the driver now checks the server's
+  certificate against that IP address. Version 8.23.0 checked it against
+  `localhost`, so a certificate issued for another server could be accepted.
 
 ## [1.0.0-rc.1] - 2026-10-10
 
@@ -61,5 +131,5 @@ The first public release candidate.
 The first version: the read-only MCP server (`serve`), the PostgreSQL
 extractor (`extract postgres`), and `rotate-token`.
 
-[Unreleased]: https://github.com/Maplith/bridge/compare/v1.0.0-rc.1...HEAD
-[1.0.0-rc.1]: https://github.com/Maplith/bridge/releases/tag/v1.0.0-rc.1
+[Unreleased]: https://github.com/Maplith/agents/compare/v1.0.0-rc.1...HEAD
+[1.0.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.0.0-rc.1

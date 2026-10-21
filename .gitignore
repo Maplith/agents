@@ -1,4 +1,5 @@
 node_modules/
-dist/
+# The Bridge's build output; the plugin's skill zip in plugins/maplith/dist/ is committed.
+/dist/
 *.token
 *.tgz
