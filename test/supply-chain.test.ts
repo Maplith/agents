@@ -300,8 +300,13 @@ describe('the documents', () => {
     expect(server.version).toBe(v);
     expect(server.packages).toEqual([expect.objectContaining({ registryType: 'npm', identifier: pkg.name, version: v, transport: expect.objectContaining({ type: 'streamable-http' }) })]);
     expect(server.description.length).toBeLessThanOrEqual(100);
-    // No other version of the package is named for installing.
-    for (const f of ['README.md', 'RUNBOOK.md', 'INSTALL-WITH-YOUR-AGENT.md']) {
+    // No other version of the package is named for installing, and no
+    // unversioned npx: npm's latest is a placeholder until a release is
+    // tagged latest, so `npx maplith` alone would find no command.
+    for (const f of ['README.md', 'RUNBOOK.md', 'INSTALL-WITH-YOUR-AGENT.md', 'plugins/maplith/README.md', 'plugins/maplith/skills/maplith/SKILL.md']) {
+      expect(read(f), f).not.toMatch(/npx (?:-y |--yes )?maplith(?:-bridge)?(?![@\w-])/);
+    }
+    for (const f of ['README.md', 'RUNBOOK.md', 'INSTALL-WITH-YOUR-AGENT.md', 'plugins/maplith/README.md', 'plugins/maplith/skills/maplith/SKILL.md']) {
       for (const m of read(f).matchAll(/(?:@maplith\/bridge@|maplith-bridge-|maplith-|maplith@|VERSION=|v)(\d+\.\d+\.\d+(?:-rc\.\d+)?)/g)) expect(m[1], f).toBe(v);
     }
   });

@@ -131,8 +131,8 @@ export function loadConfig({ file = null, env = process.env } = {}) {
   if (alertUrl && !isAlertUrl(alertUrl)) problems.push('ALERT_WEBHOOK_URL must be an https address');
   const apiBase = env.ANTHROPIC_API_BASE ? String(env.ANTHROPIC_API_BASE).trim() : null;
   if (apiBase && !LOOPBACK.test(apiBase)) problems.push('ANTHROPIC_API_BASE may only name a local test server (http://127.0.0.1:<port>)');
-  const port = env.PORT ? Number(env.PORT) : 8080;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) problems.push('PORT must be a port number');
+  const port = env.PORT ? (/^\d+$/.test(String(env.PORT).trim()) ? Number(env.PORT) : NaN) : 8080;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) problems.push('PORT must be a port number');
 
   const out = {
     adapter, name, paused: s.paused ?? false, maxFiresPerHour, dedupeHours, timeZone,

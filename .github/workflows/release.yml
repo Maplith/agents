@@ -215,4 +215,4 @@ jobs:
             "dist/maplith-$VERSION.tgz" \
             "dist/maplith-$VERSION.tgz.sha256" \
             "dist/maplith-$VERSION.tgz.sigstore.json" \
-            --verify-tag --title "Maplith Bridge $VERSION" --notes-file notes.md $prerelease
+            --verify-tag --title "Maplith $VERSION" --notes-file notes.md $prerelease

@@ -68,9 +68,9 @@ that folder from PostgreSQL under a database role that can only read.
 - **Your password stays with you.** The database password never leaves the
   machine the extractor runs on, and the server that faces the network never
   holds it.
-- **Small enough to read.** Four files of TypeScript, beside the `maplith`
-  command and its `setup`. The server runs on Node.js alone; the extractor
-  has one dependency, the PostgreSQL client, pinned.
+- **Small enough to read.** Six files of TypeScript: four for the Bridge, and
+  the `maplith` command and its `setup`. The server runs on Node.js alone; the
+  extractor has one dependency, the PostgreSQL client, pinned.
 
 Any MCP client can use it: Claude Code, Codex, Claude Desktop, your own agent. It
 works best with [Maplith](https://maplith.com), which reads the folder to map
@@ -200,7 +200,7 @@ An agent that starts its MCP servers as local commands, such as Claude Code,
 can start the Bridge itself:
 
 ```sh
-npx -y maplith bridge stdio --dir ./exports
+npx -y maplith@1.2.0-rc.1 bridge stdio --dir ./exports
 ```
 
 `stdio` serves the folder to that one agent over its stdin and stdout: the

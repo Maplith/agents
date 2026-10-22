@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -70,7 +70,7 @@ describe('maplith-bridge stdio', () => {
     expect(resources.result.resources.map((r: { uri: string }) => r.uri)).toEqual(['exports://exports/orders.csv']);
     expect(JSON.stringify(read.result)).toContain('1,10');
     // Logs on stderr only, and the folder a person named is never removed.
-    expect(run.out.stderr).toContain(`serving ${dir}`);
+    expect(run.out.stderr).toContain(`serving ${realpathSync(dir)}`);
     expect(run.out.stderr).toContain('stdin ended: stopping the server.');
     expect(readdirSync(dir)).toEqual(['orders.csv']);
     expect(run.out.stdout + run.out.stderr).not.toMatch(TOKEN_SHAPE);

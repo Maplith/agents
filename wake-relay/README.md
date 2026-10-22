@@ -69,7 +69,7 @@ the relay at start-up, with every problem listed.
 | `ROUTINE_TOKEN` | The routine's API token (adapter `claude-code-routine`). It is sent to `api.anthropic.com` and nowhere else. |
 | `ANTHROPIC_API_KEY` | Your Claude API key (adapter `managed-agents`). |
 | `ALERT_WEBHOOK_URL` | Optional. An https address that takes a JSON POST: `{"text": "…", "event": "…"}`. Slack incoming webhooks, n8n, Make and Zapier all do. |
-| `PORT` | The port to listen on. Default 8080. |
+| `PORT` | The port to listen on. Default 8080. 0 lets the system pick a free one, which the start line names; for local runs, since the container's health check needs a fixed port. |
 
 | Setting | Default | |
 |---|---|---|

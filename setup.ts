@@ -86,9 +86,16 @@ export function setupSteps(target: 'claude' | 'codex', opts: { version: string; 
   return steps;
 }
 
-/** A command as a person would type it. */
-export function shown(command: string, args: readonly string[]): string {
-  return [command, ...args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`))].join(' ');
+/** A command as a person would type it: in a POSIX shell, or with
+ *  `platform` win32 in cmd.exe or PowerShell, where an argument with a space
+ *  goes in double quotes (a quote inside one is doubled). */
+export function shown(command: string, args: readonly string[], platform = 'posix'): string {
+  const win = platform === 'win32';
+  // What each shell takes as it is: a Windows path's backslash is plain
+  // there, and a POSIX shell's % is.
+  const plain = win ? /^[\w@+=:,./\\-]+$/ : /^[\w@%+=:,./-]+$/;
+  const quote = (a: string) => (plain.test(a) ? a : win ? `"${a.replace(/"/g, '""')}"` : `'${a.replace(/'/g, `'\\''`)}'`);
+  return [command, ...args.map(quote)].join(' ');
 }
 
 const realRun: Run = (command, args) =>
@@ -142,7 +149,8 @@ export async function runSetup(
     // only through a shell; the commands are printed to run instead.
     if (print || (opts.platform ?? process.platform) === 'win32') {
       if (!print) io.stdout('Run these commands, one after the other:');
-      for (const [c, a] of steps) io.stdout(shown(c, a));
+      const platform = opts.platform ?? process.platform;
+      for (const [c, a] of steps) io.stdout(shown(c, a, platform));
       if (target === 'claude') io.stdout('Then start Claude Code, run /mcp, choose maplith and Authenticate.');
       if (target === 'codex' && !login) io.stdout(`Then sign in: codex mcp login ${SERVER}`);
       io.stdout(NO_ACCOUNT);

@@ -42,6 +42,14 @@ test('the environment wins over the file', () => {
   assert.equal(loadConfig({ file: f, env: { ...env, RELAY_MAX_FIRES_PER_HOUR: '9' } }).config.maxFiresPerHour, 9);
 });
 
+test('PORT: 8080 when unset, 0 lets the system pick, anything else must be a port number', () => {
+  const base = { ...env, RELAY_ADAPTER: 'claude-code-routine', RELAY_ROUTINE_FIRE_URL: FIRE };
+  assert.equal(loadConfig({ file: null, env: base }).config.port, 8080);
+  assert.equal(loadConfig({ file: null, env: { ...base, PORT: '0' } }).config.port, 0);
+  assert.equal(loadConfig({ file: null, env: { ...base, PORT: '3000' } }).config.port, 3000);
+  for (const bad of ['-1', '65536', '80.5', 'http', ' ', '0x50']) assert.match(problems(loadConfig({ file: null, env: { ...base, PORT: bad } })).join('\n'), /PORT must be a port number/, bad);
+});
+
 test('the file as shipped is refused until it is filled in, and says what is missing', () => {
   const r = loadConfig({ file: join(root, 'relay.config.json'), env });
   assert.equal(r.ok, false);

@@ -73,6 +73,13 @@ describe('the commands it runs', () => {
     expect(shown(...steps[2])).toContain(`'EXPORT_DIR=/tmp/my data/it'\\''s'`);
   });
 
+  it('prints a folder the way the person\'s shell reads it: single quotes in a POSIX shell, double quotes on Windows', () => {
+    expect(shown('codex', ['--env', 'EXPORT_DIR=C:\\My Data\\x'], 'win32')).toBe('codex --env "EXPORT_DIR=C:\\My Data\\x"');
+    expect(shown('codex', ['--env', 'EXPORT_DIR=C:\\data'], 'win32')).toBe('codex --env EXPORT_DIR=C:\\data');
+    expect(shown('codex', ['--env', 'EXPORT_DIR=a"b c'], 'win32')).toBe('codex --env "EXPORT_DIR=a""b c"');
+    expect(shown('x', ['a\\b'], 'linux')).toBe("x 'a\\b'");
+  });
+
   it('never puts a key, a token or a header in what it runs', () => {
     for (const t of ['claude', 'codex'] as const) {
       expect(JSON.stringify(setupSteps(t, { version: V, dir: '/x', login: true }))).not.toMatch(/token|bearer|authorization|mlk_|--header/i);
