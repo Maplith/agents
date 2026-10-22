@@ -8,7 +8,7 @@ For a security problem, do not open an issue: follow [SECURITY.md](SECURITY.md).
 
 - **Maplith Bridge**: the repository root (`bridge.ts`, `serve.ts`,
   `stdio.ts`, `extract-postgres.ts`, `glama-stdio.ts`, `test/`).
-- **The Claude plugin**: `.claude-plugin/marketplace.json` and
+- **The plugin for Claude Code and Codex**: `.claude-plugin/marketplace.json` and
   `plugins/maplith/`. After a change to the skill, rebuild its zip with
   `node plugins/maplith/scripts/build-skill-zip.mjs`, and check the plugin
   with `claude plugin validate plugins/maplith`.

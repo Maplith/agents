@@ -134,7 +134,7 @@ statistics were last reset.
 
 ## 6. A tampered package
 
-**What holds.** The server and `rotate-token` use Node.js alone. The extractor
+**What holds.** The server, `stdio`, `rotate-token` and `setup` use Node.js alone. The extractor
 has one dependency, the PostgreSQL client, at an exact version, with every
 installed package pinned by its hash, and none runs an install script; the
 published package has no scripts at all. A release is built by the release
@@ -172,6 +172,24 @@ The README tells you to give your own agent the same rule.
 - `serve.test.ts` › "initialize advertises resources and tools, negotiates the version, and says file content is data"
 - `serve.test.ts` › "lists exactly two tools, both read-only, with strict schemas"
 - `supply-chain.test.ts` › "tell every client to treat file contents as data, never as instructions"
+
+## 8. The setup command runs other programs
+
+**What holds.** `maplith setup claude|codex` runs your agent's own commands,
+`claude` or `codex`, the ones its documentation gives for adding a plugin and
+signing in. It starts them without a shell, so every argument, a folder name
+included, reaches the agent as written. It writes no file of its own, holds
+no key and sends nothing anywhere; what your agent's configuration ends up
+holding is what those commands write, and the sign-in happens in your
+browser. `--print` shows the commands instead of running them, and on Windows
+it only prints them. The code is loaded only by `setup`: the server, `stdio`
+and `rotate-token` never load it.
+
+**Tests.**
+
+- `setup.test.ts` › "hands a folder with spaces or quotes to the agent as one argument, never through a shell"
+- `setup.test.ts` › "never puts a key, a token or a header in what it runs"
+- `setup.test.ts` › "--print, and always on Windows, prints the commands and runs none"
 
 ## Outside this model
 

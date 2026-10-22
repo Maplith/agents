@@ -40,16 +40,16 @@ the other; and, if you have the GitHub CLI, check the build attestation, which
 proves the file was built from this repository by its release workflow:
 
 ```sh
-VERSION=1.1.0-rc.1
+VERSION=1.2.0-rc.1
 BASE=https://github.com/Maplith/agents/releases/download/v$VERSION
-curl -fLO $BASE/maplith-bridge-$VERSION.tgz
-curl -fLO $BASE/maplith-bridge-$VERSION.tgz.sha256
-curl -fLO $BASE/maplith-bridge-$VERSION.tgz.sigstore.json
-sha256sum -c maplith-bridge-$VERSION.tgz.sha256
-echo "sha512-$(openssl dgst -sha512 -binary maplith-bridge-$VERSION.tgz | openssl base64 -A)"
-npm view maplith-bridge@$VERSION dist.integrity
-gh attestation verify maplith-bridge-$VERSION.tgz --repo Maplith/agents \
-  --bundle maplith-bridge-$VERSION.tgz.sigstore.json
+curl -fLO $BASE/maplith-$VERSION.tgz
+curl -fLO $BASE/maplith-$VERSION.tgz.sha256
+curl -fLO $BASE/maplith-$VERSION.tgz.sigstore.json
+sha256sum -c maplith-$VERSION.tgz.sha256
+echo "sha512-$(openssl dgst -sha512 -binary maplith-$VERSION.tgz | openssl base64 -A)"
+npm view maplith@$VERSION dist.integrity
+gh attestation verify maplith-$VERSION.tgz --repo Maplith/agents \
+  --bundle maplith-$VERSION.tgz.sigstore.json
 ```
 
 This repository was called `Maplith/bridge` until version 1.1.0. A release
@@ -62,7 +62,7 @@ Then create the users and folders, and install:
 sudo useradd --system --home-dir /var/lib/maplith-extract --create-home --shell /usr/sbin/nologin maplith-extract
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin maplith-bridge
 sudo mkdir -p /opt/maplith-bridge /srv/maplith/exports /etc/maplith-bridge
-sudo tar -xzf maplith-bridge-$VERSION.tgz -C /opt/maplith-bridge --strip-components=1
+sudo tar -xzf maplith-$VERSION.tgz -C /opt/maplith-bridge --strip-components=1
 sudo chown -R root:root /opt/maplith-bridge
 # The folder: written by maplith-extract, read by the group maplith-bridge,
 # nobody else. The setgid bit (the 2) gives every new file and folder the group.
@@ -318,7 +318,7 @@ restart:
 
 ```sh
 sudo rm -rf /opt/maplith-bridge && sudo mkdir /opt/maplith-bridge
-sudo tar -xzf maplith-bridge-$VERSION.tgz -C /opt/maplith-bridge --strip-components=1
+sudo tar -xzf maplith-$VERSION.tgz -C /opt/maplith-bridge --strip-components=1
 sudo chown -R root:root /opt/maplith-bridge
 cd /opt/maplith-bridge && sudo npm ci --ignore-scripts --omit=dev
 sudo systemctl restart maplith-bridge

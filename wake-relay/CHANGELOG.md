@@ -6,6 +6,8 @@
   Maplith, with a link to the page about it. Nothing is asked and nothing is
   sent.
 - The package's homepage is maplith.com/open-source.
+- `PORT=0` lets the system pick a free port, and the start line names the port
+  the relay listens on.
 
 ## 1.0.0
 

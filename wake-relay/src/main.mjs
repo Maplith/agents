@@ -41,7 +41,7 @@ const server = createWakeServer({ relay, secrets: config.secrets.wake, log: (l) 
 server.listen(config.port, () => {
   // One line about who makes it: a link, nothing asked and nothing sent.
   log('Maplith Wake is open source, made by Maplith: https://maplith.com/open-source?utm_source=wake-cli&utm_medium=cli&utm_campaign=oss-wake');
-  log(`listening on ${config.port}; ${adapter.name}; at most ${config.maxFiresPerHour} starts an hour${config.paused ? '; PAUSED: wake-ups are answered and nothing is started' : ''}${config.stateFile ? '; state kept in a file' : '; state kept in memory'}`);
+  log(`listening on ${server.address().port}; ${adapter.name}; at most ${config.maxFiresPerHour} starts an hour${config.paused ? '; PAUSED: wake-ups are answered and nothing is started' : ''}${config.stateFile ? '; state kept in a file' : '; state kept in memory'}`);
   // Signals that waited for a start when the relay last stopped.
   relay.resume().catch((e) => log(`restart: ${redact(e.message)}`));
 });

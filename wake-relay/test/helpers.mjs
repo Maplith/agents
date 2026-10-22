@@ -64,21 +64,27 @@ export async function fakeApi(handler) {
   return { url, seen, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
 }
 
-/** Runs the relay as a process; resolves once it answers /healthz, or with the exit code if it stops. */
+/** Runs the relay as a process on a port the system picks (PORT=0), so it
+ *  never draws one an outgoing connection already holds; resolves once it
+ *  names its port and answers /healthz, or once it stops. `url` is null when
+ *  it never said where it listens. */
 export async function runRelay(env, { wait = true } = {}) {
-  const port = 20000 + Math.floor(Math.random() * 20000);
   const child = spawn(process.execPath, [join(root, 'src', 'main.mjs')], {
-    env: { PATH: process.env.PATH, PORT: String(port), RELAY_CONFIG: join(root, 'no-such-file.json'), ...env },
+    env: { PATH: process.env.PATH, PORT: '0', RELAY_CONFIG: join(root, 'no-such-file.json'), ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
-  const url = `http://127.0.0.1:${port}`;
+  let url = null;
   if (wait) {
     for (let i = 0; i < 100; i++) {
-      try { if ((await fetch(`${url}/healthz`)).ok) break; } catch { /* not yet */ }
+      const port = out.match(/listening on (\d+);/)?.[1];
+      if (port) {
+        url = `http://127.0.0.1:${port}`;
+        try { if ((await fetch(`${url}/healthz`)).ok) break; } catch { /* not yet */ }
+      }
       if (child.exitCode !== null) break;
       await new Promise((r) => setTimeout(r, 50));
     }

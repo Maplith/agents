@@ -10,13 +10,14 @@ import { gzipSync } from 'node:zlib';
  *
  *    node scripts/build.ts [--out <folder>]      (default: dist)
  *
- *  writes maplith-bridge-<version>.tgz and maplith-bridge-<version>.tgz.sha256.
+ *  writes maplith-<version>.tgz and maplith-<version>.tgz.sha256.
  *  The tarball is the npm package itself (every entry under package/), so the
  *  file published to npm and the file attached to the GitHub Release are the
  *  same bytes, with the same checksum.
  *
  *  What is in it:
- *   - bridge.js, serve.js, stdio.js and extract-postgres.js: the TypeScript sources
+ *   - maplith.js, bridge.js, serve.js, stdio.js, extract-postgres.js and
+ *     setup.js: the TypeScript sources
  *     with their types replaced by spaces (Node.js's own stripTypeScriptTypes,
  *     which keeps every line and column where it was), and `./x.ts` imports
  *     pointing at `./x.js`. Node.js does not strip types inside node_modules,
@@ -41,11 +42,14 @@ import { gzipSync } from 'node:zlib';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** The sources, in the repository root, and their names in the package. */
-export const SOURCES = ['bridge.ts', 'serve.ts', 'stdio.ts', 'extract-postgres.ts'] as const;
+export const SOURCES = ['maplith.ts', 'bridge.ts', 'serve.ts', 'stdio.ts', 'extract-postgres.ts', 'setup.ts'] as const;
 /** The documents in the package, beside the code. */
 export const DOCS = ['CHANGELOG.md', 'INSTALL-WITH-YOUR-AGENT.md', 'LICENSE', 'README.md', 'RUNBOOK.md', 'SECURITY.md', 'THREAT-MODEL.md', 'TRADEMARK.md'] as const;
-/** The command npm links: its file needs a shebang and the execute bit. */
-export const BIN = 'bridge.js';
+/** The commands npm links, and their files, which need a shebang and the
+ *  execute bit: `maplith`, and `maplith-bridge`, kept as an alias of
+ *  `maplith bridge`. */
+export const BINS: Readonly<Record<string, string>> = { maplith: 'maplith.js', 'maplith-bridge': 'bridge.js' };
+const BIN_FILES = new Set(Object.values(BINS));
 
 /** Semantic versioning: 1.0.0, or a pre-release such as 1.0.0-rc.1. */
 export const VERSION = /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/;
@@ -87,6 +91,8 @@ export function sourceDate(root = ROOT, env: Record<string, string | undefined> 
 export function toJavaScript(source: string, bin = false): string {
   let js = stripTypeScriptTypes(source, { mode: 'strip' });
   js = js.replace(/(from '\.\/[a-z-]+)\.ts';/g, "$1.js';");
+  // A command's own module, loaded only when it runs (maplith.ts: setup.ts).
+  js = js.replace(/(import\('\.\/[a-z-]+)\.ts'\)/g, "$1.js')");
   if (/'\.\/[^']*\.ts'/.test(js)) throw new Error('A relative .ts import is left after the rewrite');
   return bin ? `#!/usr/bin/env node\n${js}` : js;
 }
@@ -141,7 +147,10 @@ export function entries(root = ROOT, src = root): Entry[] {
   const published: Manifest = { ...pkg };
   delete published.scripts;
   delete published.devDependencies;
-  if (published.bin?.['maplith-bridge'] !== BIN) throw new Error(`package.json must link the maplith-bridge command to ${BIN}`);
+  for (const [command, file] of Object.entries(BINS)) {
+    if (published.bin?.[command] !== file) throw new Error(`package.json must link the ${command} command to ${file}`);
+  }
+  if (Object.keys(published.bin ?? {}).length !== Object.keys(BINS).length) throw new Error('package.json links a command build.ts does not know');
   const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as { name?: string; version?: string };
   if (lock.name !== pkg.name || lock.version !== pkg.version) throw new Error('package-lock.json names another package or version: run npm install --package-lock-only');
   const out: Entry[] = [
@@ -150,7 +159,8 @@ export function entries(root = ROOT, src = root): Entry[] {
   ];
   for (const s of SOURCES) {
     const name = s.replace(/\.ts$/, '.js');
-    out.push({ name, data: Buffer.from(toJavaScript(readFileSync(join(src, s), 'utf8'), name === BIN)), mode: name === BIN ? 0o755 : 0o644 });
+    const bin = BIN_FILES.has(name);
+    out.push({ name, data: Buffer.from(toJavaScript(readFileSync(join(src, s), 'utf8'), bin)), mode: bin ? 0o755 : 0o644 });
   }
   for (const d of DOCS) out.push({ name: d, data: readFileSync(join(root, d)), mode: 0o644 });
   return out;
@@ -164,8 +174,8 @@ export interface Built {
 
 export function build(out: string, opts: { root?: string; src?: string; env?: Record<string, string | undefined> } = {}): Built {
   const root = opts.root ?? ROOT;
-  const { version } = manifest(root);
-  const name = `maplith-bridge-${version}.tgz`;
+  const { name: pkgName, version } = manifest(root);
+  const name = `${pkgName}-${version}.tgz`;
   const bytes = tarGz(entries(root, opts.src ?? root), sourceDate(root, opts.env ?? process.env));
   mkdirSync(out, { recursive: true });
   const file = join(out, name);
@@ -189,7 +199,7 @@ if (isMain) {
     process.exit(2);
   }
   const { file, sha256, version } = build(resolve(args.length ? args[1] : join(ROOT, 'dist')));
-  console.log(`Maplith Bridge ${version}: ${file}`);
+  console.log(`Maplith ${version}: ${file}`);
   console.log(`sha256 ${sha256} (also in ${file}.sha256)`);
   console.log(`Built with Node.js ${process.version}.`);
 }
