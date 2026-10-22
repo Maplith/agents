@@ -11,16 +11,45 @@ next to your agent and your data. One product, three parts:
 
 | Part | What it does | Where |
 |---|---|---|
-| **Claude plugin** | Maplith in Claude Code with one install: the hosted map over MCP (you sign in; nothing is pasted), Maplith Bridge for a local folder, and a skill that says when and how to use them. | [`plugins/maplith/`](plugins/maplith/) |
+| **Plugin for Claude Code and Codex** | Maplith in your coding agent with one install: the hosted map over MCP (you sign in; nothing is pasted), Maplith Bridge for a local folder, and a skill that says when and how to use them. | [`plugins/maplith/`](plugins/maplith/) |
 | **Maplith Bridge** | Connect your database to your AI agent, read-only, without giving anyone your password. | this page, from [Quick start](#quick-start) |
 | **Maplith Wake** | Start your own Claude agent the moment there is work for it, from a small relay in your own account. | [`wake-relay/`](wake-relay/) |
 
-Install the plugin in Claude Code:
+All of it is one npm package, [`maplith`](https://www.npmjs.com/package/maplith),
+with one command: `maplith setup` puts Maplith in your agent, and
+`maplith bridge` is Maplith Bridge.
+
+## Set Maplith up in your agent
+
+No account? You create one in the browser window that opens when you sign
+in, and come straight back. Your agent then builds your first map with you.
+
+**One command**, with Node.js 24 or newer. It runs your agent's own commands
+and writes no key anywhere:
+
+```sh
+npx --yes maplith@1.2.0-rc.1 setup claude
+npx --yes maplith@1.2.0-rc.1 setup codex
+```
+
+**Or by hand.** Claude Code:
 
 ```text
 /plugin marketplace add Maplith/agents
 /plugin install maplith@maplith
 ```
+
+then run `/mcp`, choose **maplith** and **Authenticate**. OpenAI Codex:
+
+```sh
+codex plugin marketplace add Maplith/agents
+codex plugin add maplith@maplith
+codex mcp login maplith
+```
+
+Codex does not pass your environment to a plugin's servers, so to share a
+folder with Codex through the Bridge, name it once:
+`npx --yes maplith@1.2.0-rc.1 setup codex --dir <folder>`.
 
 Everything here is Apache-2.0.
 
@@ -39,11 +68,11 @@ that folder from PostgreSQL under a database role that can only read.
 - **Your password stays with you.** The database password never leaves the
   machine the extractor runs on, and the server that faces the network never
   holds it.
-- **Small enough to read.** Four files of TypeScript. The server runs on
-  Node.js alone; the extractor has one dependency, the PostgreSQL client,
-  pinned.
+- **Small enough to read.** Four files of TypeScript, beside the `maplith`
+  command and its `setup`. The server runs on Node.js alone; the extractor
+  has one dependency, the PostgreSQL client, pinned.
 
-Any MCP client can use it: Claude Code, Claude Desktop, your own agent. It
+Any MCP client can use it: Claude Code, Codex, Claude Desktop, your own agent. It
 works best with [Maplith](https://maplith.com), which reads the folder to map
 how your systems fit together.
 
@@ -52,8 +81,8 @@ how your systems fit together.
 You need Node.js 24 or newer.
 
 ```sh
-npx --yes maplith-bridge@1.1.0-rc.1 rotate-token
-npx --yes maplith-bridge@1.1.0-rc.1 serve --dir ./exports
+npx --yes maplith@1.2.0-rc.1 bridge rotate-token
+npx --yes maplith@1.2.0-rc.1 bridge serve --dir ./exports
 ```
 
 The first command writes a random token to `maplith-bridge.token`, readable
@@ -70,7 +99,7 @@ To fill the folder from PostgreSQL, under a read-only role:
 
 ```sh
 PGHOST=db.example.com PGDATABASE=shop PGUSER=bridge_reader \
-  npx --yes maplith-bridge@1.1.0-rc.1 extract postgres --out ./exports --check
+  npx --yes maplith@1.2.0-rc.1 bridge extract postgres --out ./exports --check
 ```
 
 `--check` verifies the role and writes nothing. Run it again without `--check`
@@ -140,11 +169,11 @@ digest of it must match the file from GitHub: the two `sha512-` lines below
 are equal.
 
 ```sh
-sha256sum -c maplith-bridge-1.1.0-rc.1.tgz.sha256
-echo "sha512-$(openssl dgst -sha512 -binary maplith-bridge-1.1.0-rc.1.tgz | openssl base64 -A)"
-npm view maplith-bridge@1.1.0-rc.1 dist.integrity
-gh attestation verify maplith-bridge-1.1.0-rc.1.tgz --repo Maplith/agents \
-  --bundle maplith-bridge-1.1.0-rc.1.tgz.sigstore.json
+sha256sum -c maplith-1.2.0-rc.1.tgz.sha256
+echo "sha512-$(openssl dgst -sha512 -binary maplith-1.2.0-rc.1.tgz | openssl base64 -A)"
+npm view maplith@1.2.0-rc.1 dist.integrity
+gh attestation verify maplith-1.2.0-rc.1.tgz --repo Maplith/agents \
+  --bundle maplith-1.2.0-rc.1.tgz.sigstore.json
 ```
 
 After installing from npm, `npm audit signatures` checks the registry
@@ -171,15 +200,17 @@ An agent that starts its MCP servers as local commands, such as Claude Code,
 can start the Bridge itself:
 
 ```sh
-npx -y maplith-bridge stdio --dir ./exports
+npx -y maplith bridge stdio --dir ./exports
 ```
 
 `stdio` serves the folder to that one agent over its stdin and stdout: the
 same server as `serve`, on `127.0.0.1` only, behind a token that lives only
 in its process. There is no token file and nothing to type. The folder comes
 from `--dir` or `EXPORT_DIR`; without one it serves an empty folder and says
-how to name one. The Maplith plugin for Claude Code starts it this way, with
-the folder from `MAPLITH_BRIDGE_DIR`. To share a folder with Maplith or with
+how to name one. The Maplith plugin starts it this way: in Claude Code with
+the folder from `MAPLITH_BRIDGE_DIR`, in Codex with the folder `setup codex
+--dir` names. The older command `maplith-bridge` still works, as
+`maplith bridge`. To share a folder with Maplith or with
 an agent on another machine, use `serve`.
 
 ## For MCP directories

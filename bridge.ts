@@ -44,14 +44,27 @@ export const ABOUT_LINE = 'Maplith Bridge is open source, made by Maplith: https
 export const DEFAULT_TOKEN_FILE = 'maplith-bridge.token';
 
 /** How the person started this command, so help and messages show a command
- *  they can run again: `maplith-bridge` through npm's bin (npx, npm exec, an
- *  installed package), `node bridge.js` from the unpacked npm package, and
- *  `node bridge.ts` from a checkout of the sources. */
+ *  they can run again. The package's command is `maplith`, whose `bridge`
+ *  subcommand is this file (maplith.ts): `maplith bridge` through npm's bin
+ *  (npx, npm exec, an installed package), `node maplith.js bridge` from the
+ *  unpacked npm package, `node maplith.ts bridge` from a checkout. The older
+ *  command `maplith-bridge` is kept as an alias of `maplith bridge`, and so
+ *  are `node bridge.js` and `node bridge.ts`. */
 export function program(entry: string = process.argv[1] ?? ''): string {
   const name = basename(entry);
+  if (name === 'maplith' || name === 'maplith.cmd') return 'maplith bridge';
+  if (name === 'maplith.js') return 'node maplith.js bridge';
+  if (name === 'maplith.ts') return 'node maplith.ts bridge';
   if (name === 'maplith-bridge' || name === 'maplith-bridge.cmd') return 'maplith-bridge';
   if (name === 'bridge.js') return 'node bridge.js';
   return 'node bridge.ts';
+}
+
+/** A value an agent passed on without expanding it: a plugin's
+ *  `${MAPLITH_BRIDGE_DIR:-}`, which Claude Code expands and Codex hands over
+ *  as written. It names no folder, so it reads as none. */
+export function unexpanded(value: string | undefined): boolean {
+  return value !== undefined && /^\$\{[A-Za-z_][A-Za-z0-9_]*(:?-[^}]*)?\}$/.test(value.trim());
 }
 
 export interface Io {
@@ -494,8 +507,9 @@ async function serveCommand(argv: readonly string[], env: Env, io: Io, cwd: stri
 async function stdioCommand(argv: readonly string[], env: Env, cwd: string): Promise<BridgeResult> {
   const f = flags(argv, { '--dir': 'value', '--name': 'value' });
   // An empty EXPORT_DIR is no folder: a plugin passes the variable through
-  // whether or not the person set it.
-  const given = f.get('--dir') ?? (env.EXPORT_DIR?.trim() ? env.EXPORT_DIR : undefined);
+  // whether or not the person set it. Nor is one an agent did not expand
+  // (unexpanded): Codex passes a plugin's `${MAPLITH_BRIDGE_DIR:-}` as it is.
+  const given = f.get('--dir') ?? (env.EXPORT_DIR?.trim() && !unexpanded(env.EXPORT_DIR) ? env.EXPORT_DIR : undefined);
   const name = f.get('--name') ?? 'exports';
   if (!/^[a-z][a-z0-9-]{0,39}$/.test(name)) throw new UsageError('--name takes lower-case letters, digits and hyphens, starting with a letter (at most 40).');
   let root: string;

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { BIN, DOCS, SOURCES, build, entries } from '../scripts/build.ts';
+import { BINS, DOCS, SOURCES, build, entries } from '../scripts/build.ts';
 
 /** The supply chain: what a person installs is what this repository holds,
  *  built the same way every time, with one runtime dependency, no install
@@ -28,11 +28,13 @@ function unpack(tgz: string): string {
 }
 
 describe('the package manifest', () => {
-  it('names the package, its command and its registry entry, under the Apache License 2.0', () => {
-    expect(pkg.name).toBe('maplith-bridge');
+  it('names the package, its commands and its registry entry, under the Apache License 2.0', () => {
+    expect(pkg.name).toBe('maplith');
     expect(pkg.version).toMatch(/^\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?$/);
     expect(pkg.mcpName).toBe('com.maplith/bridge');
-    expect(pkg.bin).toEqual({ 'maplith-bridge': BIN });
+    // `maplith`, and `maplith-bridge` kept as an alias of `maplith bridge`.
+    expect(pkg.bin).toEqual({ maplith: 'maplith.js', 'maplith-bridge': 'bridge.js' });
+    expect(BINS).toEqual(pkg.bin);
     expect(pkg.license).toBe('Apache-2.0');
     expect(pkg.type).toBe('module');
     expect(pkg.engines).toEqual({ node: '>=24' });
@@ -79,9 +81,9 @@ describe('the release build', () => {
     const a = build(tmp('bridge-sc-a-'), { root: ROOT, src: SRC, env: EPOCH });
     const b = build(tmp('bridge-sc-b-'), { root: ROOT, src: SRC, env: EPOCH });
     expect(readFileSync(a.file).equals(readFileSync(b.file))).toBe(true);
-    expect(a.file.endsWith(`/maplith-bridge-${pkg.version}.tgz`)).toBe(true);
+    expect(a.file.endsWith(`/maplith-${pkg.version}.tgz`)).toBe(true);
     expect(a.sha256).toBe(createHash('sha256').update(readFileSync(a.file)).digest('hex'));
-    expect(readFileSync(`${a.file}.sha256`, 'utf8')).toBe(`${a.sha256}  maplith-bridge-${pkg.version}.tgz\n`);
+    expect(readFileSync(`${a.file}.sha256`, 'utf8')).toBe(`${a.sha256}  maplith-${pkg.version}.tgz\n`);
     // gzip's header: no time, and Unix as the system on every platform, so a
     // build on macOS matches the release built on Linux.
     const head = readFileSync(a.file).subarray(0, 10);
@@ -95,7 +97,8 @@ describe('the release build', () => {
     expect(names).toEqual(
       ['package.json', 'npm-shrinkwrap.json', ...SOURCES.map((s) => s.replace(/\.ts$/, '.js')), ...DOCS].map((n) => `package/${n}`).sort(),
     );
-    for (const l of list) expect(l.startsWith(l.endsWith(`package/${BIN}`) ? '-rwxr-xr-x' : '-rw-r--r--'), l).toBe(true);
+    const bins = Object.values(BINS).map((b) => `package/${b}`);
+    for (const l of list) expect(l.startsWith(bins.some((b) => l.endsWith(b)) ? '-rwxr-xr-x' : '-rw-r--r--'), l).toBe(true);
   });
 
   it('publishes the manifest without scripts, and the lockfile as the shrinkwrap', () => {
@@ -112,16 +115,16 @@ describe('the release build', () => {
     for (const s of SOURCES) {
       const ts = readFileSync(join(SRC, s), 'utf8');
       let js = files.get(s.replace(/\.ts$/, '.js'))!;
-      if (s.replace(/\.ts$/, '.js') === BIN) {
+      if (Object.values(BINS).includes(s.replace(/\.ts$/, '.js'))) {
         expect(js.startsWith('#!/usr/bin/env node\n')).toBe(true);
         js = js.slice('#!/usr/bin/env node\n'.length);
       }
       expect(js.length).toBe(ts.length);
       expect(js.split('\n').length).toBe(ts.split('\n').length);
-      expect(js).not.toMatch(/from '\.\/[^']+\.ts'/);
+      expect(js).not.toMatch(/from '\.\/[^']+\.ts'|import\('\.\/[^']+\.ts'\)/);
       // With the imports put back, every character is the source's, or a
       // space where a type was.
-      const back = js.replace(/(from '\.\/[a-z-]+)\.js';/g, "$1.ts';");
+      const back = js.replace(/(from '\.\/[a-z-]+)\.js';/g, "$1.ts';").replace(/(import\('\.\/[a-z-]+)\.js'\)/g, "$1.ts')");
       let changed = 0;
       for (let i = 0; i < ts.length; i++) {
         if (back[i] === ts[i]) continue;
@@ -137,10 +140,14 @@ describe('the release build', () => {
     const node = (args: string[], cwd = folder) => execFileSync(process.execPath, args, { cwd, encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
     expect(node(['bridge.js', '--version']).trim()).toBe(pkg.version);
     expect(node(['bridge.js', '--help'])).toContain('Run "node bridge.js <command> --help"');
-    // As npm links it: a command named maplith-bridge.
-    const bin = join(tmp('bridge-sc-bin-'), 'maplith-bridge');
-    symlinkSync(join(folder, 'bridge.js'), bin);
-    expect(execFileSync(bin, ['serve', '--help'], { encoding: 'utf8' })).toMatch(/^Usage: maplith-bridge serve --dir <folder>/);
+    // As npm links them: `maplith`, and the alias `maplith-bridge`.
+    const bins = tmp('bridge-sc-bin-');
+    symlinkSync(join(folder, 'maplith.js'), join(bins, 'maplith'));
+    symlinkSync(join(folder, 'bridge.js'), join(bins, 'maplith-bridge'));
+    expect(execFileSync(join(bins, 'maplith'), ['bridge', 'serve', '--help'], { encoding: 'utf8' })).toMatch(/^Usage: maplith bridge serve --dir <folder>/);
+    expect(execFileSync(join(bins, 'maplith'), ['--version'], { encoding: 'utf8' }).trim()).toBe(pkg.version);
+    expect(execFileSync(join(bins, 'maplith'), ['setup', 'codex', '--print'], { encoding: 'utf8' })).toContain('codex plugin add maplith@maplith');
+    expect(execFileSync(join(bins, 'maplith-bridge'), ['serve', '--help'], { encoding: 'utf8' })).toMatch(/^Usage: maplith-bridge serve --dir <folder>/);
     const work = tmp('bridge-sc-run-');
     mkdirSync(join(work, 'exports', 'shop'), { recursive: true });
     node([join(folder, 'bridge.js'), 'rotate-token', '--token-file', join(work, 'token')], work);
@@ -255,11 +262,11 @@ describe('the workflows', () => {
       }
     }
     const release = workflows['release.yml'];
-    expect(release).toMatch(/npm publish "\.\/maplith-bridge-\$VERSION\.tgz" --access public --provenance/);
+    expect(release).toMatch(/npm publish "\.\/maplith-\$VERSION\.tgz" --access public --provenance/);
     expect(release).toMatch(/^\s+environment: npm$/m);
     expect(release).toContain('actions/attest-build-provenance@');
     expect(release).toMatch(/NODE_VERSION: \d+\.\d+\.\d+$/m);
-    expect(release).toContain('cmp "dist/maplith-bridge-$VERSION.tgz"');
+    expect(release).toContain('cmp "dist/maplith-$VERSION.tgz"');
   });
 
   it('let Dependabot keep the driver, the test tools and the actions current', () => {
@@ -295,7 +302,7 @@ describe('the documents', () => {
     expect(server.description.length).toBeLessThanOrEqual(100);
     // No other version of the package is named for installing.
     for (const f of ['README.md', 'RUNBOOK.md', 'INSTALL-WITH-YOUR-AGENT.md']) {
-      for (const m of read(f).matchAll(/(?:@maplith\/bridge@|maplith-bridge-|VERSION=|v)(\d+\.\d+\.\d+(?:-rc\.\d+)?)/g)) expect(m[1], f).toBe(v);
+      for (const m of read(f).matchAll(/(?:@maplith\/bridge@|maplith-bridge-|maplith-|maplith@|VERSION=|v)(\d+\.\d+\.\d+(?:-rc\.\d+)?)/g)) expect(m[1], f).toBe(v);
     }
   });
 
@@ -315,5 +322,6 @@ describe('the sources the package is built from', () => {
     for (const s of SOURCES) expect(statSync(join(SRC, s)).isFile()).toBe(true);
     const out = execFileSync(process.execPath, [join(SRC, 'bridge.ts'), '--version'], { encoding: 'utf8' }).trim();
     expect(out).toBe(pkg.version);
+    expect(execFileSync(process.execPath, [join(SRC, 'maplith.ts'), '--version'], { encoding: 'utf8' }).trim()).toBe(pkg.version);
   });
 });

@@ -12,7 +12,7 @@ in charge. The agent stops for you at every decision, every password and every
 Open your agent on the server, in a folder of your choice, and paste this:
 
 ```text
-Install Maplith Bridge 1.1.0-rc.1 on this Linux server, so an MCP client can
+Install Maplith Bridge 1.2.0-rc.1 on this Linux server, so an MCP client can
 read PostgreSQL tables I choose, read-only. Rules for the whole task:
 
 1. Never ask me for, read, print or store a password or the Bridge token.
@@ -28,17 +28,17 @@ read PostgreSQL tables I choose, read-only. Rules for the whole task:
    every check of step A has passed.
 
 A. In a new empty folder, download
-   https://github.com/Maplith/agents/releases/download/v1.1.0-rc.1/maplith-bridge-1.1.0-rc.1.tgz
+   https://github.com/Maplith/agents/releases/download/v1.2.0-rc.1/maplith-1.2.0-rc.1.tgz
    and the same URL with .sha256 and with .sigstore.json added. Check the
    tarball against two separate places:
-   - GitHub: "sha256sum -c maplith-bridge-1.1.0-rc.1.tgz.sha256";
+   - GitHub: "sha256sum -c maplith-1.2.0-rc.1.tgz.sha256";
    - npm, which holds the same file: the output of
-     "npm view maplith-bridge@1.1.0-rc.1 dist.integrity" must be exactly
+     "npm view maplith@1.2.0-rc.1 dist.integrity" must be exactly
      "sha512-" followed by the output of
-     "openssl dgst -sha512 -binary maplith-bridge-1.1.0-rc.1.tgz | openssl base64 -A".
+     "openssl dgst -sha512 -binary maplith-1.2.0-rc.1.tgz | openssl base64 -A".
    If the GitHub CLI is installed, also run "gh attestation verify
-   maplith-bridge-1.1.0-rc.1.tgz --repo Maplith/agents --bundle
-   maplith-bridge-1.1.0-rc.1.tgz.sigstore.json". Stop and tell me if any
+   maplith-1.2.0-rc.1.tgz --repo Maplith/agents --bundle
+   maplith-1.2.0-rc.1.tgz.sigstore.json". Stop and tell me if any
    check fails or cannot be run, and then run and read nothing from the
    download.
 B. Unpack the tarball into another new empty folder with "tar -xzf", run
@@ -99,7 +99,7 @@ folders", with the confirmed names. Each uses sudo: rule 2 applies to each
 one. Use the tarball you verified; do not download it again.
 
 Then check, and report: `node <install folder>/bridge.js --version` prints
-`1.1.0-rc.1`; the served folder is owned by the extractor's user with group
+`1.2.0-rc.1`; the served folder is owned by the extractor's user with group
 the server's user and mode `2750`; the token folder is owned by the server's
 user with mode `700`.
 

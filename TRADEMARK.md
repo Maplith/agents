@@ -18,7 +18,7 @@ grants no right to use them.
 - Call a fork, a product or a service "Maplith" or "Maplith Bridge", or give
   it a name that could be mistaken for either.
 - Use the Maplith logo, or a logo like it, for your work.
-- Publish a package, image or listing as `maplith-bridge` on npm, under the
+- Publish a package, image or listing as `maplith` or `maplith-bridge` on npm, under the
   `com.maplith` MCP Registry namespace, or under any name that suggests it
   comes from Maplith.
 - Suggest that Maplith made, reviewed or endorses your work when it did not.

@@ -15,7 +15,7 @@ vulnerability before it is fixed.
 
 Include what you can of:
 
-- the Bridge version (`maplith-bridge --version`) and the Node.js version;
+- the Bridge version (`maplith --version`) and the Node.js version;
 - what an attacker can do, and from where: the internet, the same network, the
   same machine, a file in the served folder, or the database;
 - the steps or a proof of concept;

@@ -6,7 +6,21 @@ follows [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.2.0-rc.1] - 2026-10-22
+
+The package is now called `maplith`, with one command, `maplith`. Maplith
+Bridge is `maplith bridge`; `maplith-bridge` stays in the package as an alias
+of it, so `maplith-bridge serve` and the rest work as before.
+
 ### Added
+
+- `maplith setup claude` and `maplith setup codex`: one command that puts
+  Maplith in Claude Code or OpenAI Codex. It runs the agent's own commands to
+  add the plugin from this repository (the Maplith MCP server, Maplith Bridge
+  and the `maplith` skill) and, in Codex, signs you in. It writes no key and no
+  configuration file of its own; `--print` shows the commands instead of
+  running them, and `setup codex --dir <folder>` names the folder the Bridge
+  shares with Codex.
 
 - `stdio`: serves a folder to the agent that started the command, over its
   stdin and stdout, for agents that run their MCP servers as local commands,
@@ -22,6 +36,13 @@ follows [semantic versioning](https://semver.org).
 ### Changed
 
 - The package's homepage is maplith.com/open-source.
+- The npm package is `maplith`; its tarball is `maplith-<version>.tgz`.
+
+### Fixed
+
+- `stdio` reads an `EXPORT_DIR` an agent passed on without expanding it (such
+  as `${MAPLITH_BRIDGE_DIR:-}`) as no folder, and serves an empty one, instead
+  of refusing to start. Codex starts a plugin's servers this way.
 
 ## [1.1.0-rc.1] - 2026-10-17
 
@@ -131,5 +152,7 @@ The first public release candidate.
 The first version: the read-only MCP server (`serve`), the PostgreSQL
 extractor (`extract postgres`), and `rotate-token`.
 
-[Unreleased]: https://github.com/Maplith/agents/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/Maplith/agents/compare/v1.2.0-rc.1...HEAD
+[1.2.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.2.0-rc.1
+[1.1.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.1.0-rc.1
 [1.0.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.0.0-rc.1
