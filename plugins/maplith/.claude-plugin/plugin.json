@@ -1,6 +1,6 @@
 {
   "name": "maplith",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Maplith for your coding agent: the map of your company's systems, rules and signals over Maplith's MCP server (you sign in; nothing is pasted), Maplith Bridge to share a local folder of data files read-only, and a skill that says when and how to use them.",
   "author": {
     "name": "Maplith",

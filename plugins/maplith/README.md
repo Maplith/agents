@@ -57,9 +57,9 @@ Bridge's folder once with `npx --yes maplith@1.2.0-rc.1 setup codex --dir
   name the folder with the `MAPLITH_BRIDGE_DIR` environment variable before
   you start it; in Codex, with `setup codex --dir`. It needs Node.js 24 or
   newer, and `npx` fetches the pinned version the first time it starts;
-- the `maplith` skill: when to reach for the map, the order of calls, ask
-  before acting, never rows, ask you when the map is unsure, and keep the map
-  current as your agent works.
+- the `maplith` skill: when to reach for the map, how to read what it
+  returns, ask before acting, the map and not the rows, ask you when the map
+  is unsure, and keep the map current as your agent works.
 
 Wake-ups, which start your agent when there is work, run outside your agent
 in your own account: see the `wake-relay` folder of this repository and
