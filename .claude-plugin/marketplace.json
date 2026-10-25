@@ -12,7 +12,7 @@
       "name": "maplith",
       "source": "./plugins/maplith",
       "description": "The map of your company's systems, rules and signals over Maplith's MCP server, Maplith Bridge for a local folder of data files, and a skill that says when and how to use them.",
-      "version": "0.3.2"
+      "version": "0.3.3"
     }
   ]
 }

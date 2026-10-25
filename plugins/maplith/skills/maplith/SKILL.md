@@ -61,6 +61,12 @@ key. On `denied`, stop and tell your human. When done, call `record_action`.
 
 **Rule: ask before you act, and once for each thing.**
 
+To set up an alert, use `request_action` with `op: proposal` and a
+**rule_from_finding** or **watch_from_rule** proposal. A person approves it in
+Maplith or linked Slack. Approved rules stay off until a person turns them
+on under Rules. Use the visible map's names and tested joins; do not activate
+a rule or watch yourself. Full grammar: `maplith://docs/mcp`.
+
 ## Keep the map current: report back
 
 The map is only as good as what it was last shown; hand back what you learn,
@@ -99,7 +105,8 @@ new since this connection last asked; pass on how to refresh the tool list.
 **Work you handled is a report, not an upload.** When your key permits it,
 use `record_action` with the work argument (kind, map object names and non-personal
 references, optional time), summary and outcome done or skipped. This
-starts no scan. Use references for things such as an edition or page, rather than
+starts no scan. At a later scan, repeats can become a playbook draft for an admin
+to approve; nothing activates itself. Use references for things such as an edition or page, rather than
 people. Maplith tries to mask the summary, best effort. `submit_sources` is
 for exports from your human's systems. Report your own work through the work path. If your
 key cannot report work, ask a workspace admin for write access under
