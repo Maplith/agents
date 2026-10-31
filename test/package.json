@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.10",
+    "@electric-sql/pglite": "0.5.13",
     "@types/node": "26.6.5",
     "fast-check": "4.10.2",
     "typescript": "7.0.2",
