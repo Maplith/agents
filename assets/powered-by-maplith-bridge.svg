@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="196" height="28" viewBox="0 0 196 28" role="img" aria-label="Powered by Maplith Bridge">
+  <title>Powered by Maplith Bridge</title>
+  <rect width="196" height="28" rx="4" fill="#1C1917"/>
+  <circle cx="14" cy="14" r="4" fill="#C74E31"/>
+  <text x="26" y="18.5" fill="#FAFAF9" font-family="Geist, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="500">Powered by Maplith Bridge</text>
+</svg>

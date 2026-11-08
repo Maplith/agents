@@ -76,6 +76,24 @@ describe('maplith-bridge stdio', () => {
     expect(run.out.stdout + run.out.stderr).not.toMatch(TOKEN_SHAPE);
   }, 30_000);
 
+  it('prints one docs line on stderr at start, and MAPLITH_BRIDGE_QUIET=1 silences it', async () => {
+    const dir = tmp('bridge-stdio-docs-');
+    const loud = start(['--dir', dir]);
+    loud.send({ jsonrpc: '2.0', id: 1, method: 'resources/list' });
+    await loud.until(() => loud.replies().length === 1, 'the list');
+    loud.child.stdin.end();
+    expect(await loud.closed).toBe(0);
+    expect(loud.out.stderr.match(/docs: https:\/\/maplith\.com\/docs/g)).toHaveLength(1);
+    expect(loud.out.stdout).not.toContain('maplith.com/docs');
+
+    const quiet = start(['--dir', dir], { MAPLITH_BRIDGE_QUIET: '1' });
+    quiet.send({ jsonrpc: '2.0', id: 1, method: 'resources/list' });
+    await quiet.until(() => quiet.replies().length === 1, 'the list');
+    quiet.child.stdin.end();
+    expect(await quiet.closed).toBe(0);
+    expect(quiet.out.stderr).not.toContain('maplith.com/docs');
+  }, 30_000);
+
   it('takes the folder from EXPORT_DIR, and an empty EXPORT_DIR names none', async () => {
     const dir = tmp('bridge-stdio-env-');
     writeFileSync(join(dir, 'a.csv'), 'x\n1\n');

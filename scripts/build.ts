@@ -44,7 +44,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 /** The sources, in the repository root, and their names in the package. */
 export const SOURCES = ['maplith.ts', 'bridge.ts', 'serve.ts', 'stdio.ts', 'extract-postgres.ts', 'setup.ts'] as const;
 /** The documents in the package, beside the code. */
-export const DOCS = ['CHANGELOG.md', 'INSTALL-WITH-YOUR-AGENT.md', 'LICENSE', 'README.md', 'RUNBOOK.md', 'SECURITY.md', 'THREAT-MODEL.md', 'TRADEMARK.md'] as const;
+export const DOCS = ['CHANGELOG.md', 'INSTALL-WITH-YOUR-AGENT.md', 'LICENSE', 'NOTICE', 'README.md', 'RUNBOOK.md', 'SECURITY.md', 'THREAT-MODEL.md', 'TRADEMARK.md'] as const;
 /** The commands npm links, and their files, which need a shebang and the
  *  execute bit: `maplith`, and `maplith-bridge`, kept as an alias of
  *  `maplith bridge`. */

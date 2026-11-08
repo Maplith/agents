@@ -2,9 +2,11 @@
   "name": "maplith",
   "version": "1.2.0-rc.1",
   "mcpName": "com.maplith/bridge",
-  "description": "Maplith for your AI agents: set Maplith up in Claude Code or Codex with one command, and share a folder of data files with your agent over MCP, read-only and behind a token, filled from PostgreSQL under a read-only role.",
+  "description": "Maplith Bridge (npm: maplith, command: maplith-bridge), in the Maplith/agents repository: set Maplith up in Claude Code or Codex with one command, and share a folder of data files with your agent over MCP, read-only and behind a token, filled from PostgreSQL under a read-only role.",
   "keywords": [
     "maplith",
+    "maplith-bridge",
+    "maplith-agents",
     "mcp",
     "model-context-protocol",
     "mcp-server",

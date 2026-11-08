@@ -105,6 +105,14 @@ export const log = (line: string): void => {
   process.stderr.write(`maplith-bridge stdio: ${line}\n`);
 };
 
+/** The one line printed when the Bridge starts, on stderr so it never
+ *  touches stdio MCP. MAPLITH_BRIDGE_QUIET=1 turns it off. The Bridge keeps
+ *  no state folder, so it is printed once per process start. */
+export function announce(v: string, env: { MAPLITH_BRIDGE_QUIET?: string } = process.env): void {
+  if (env.MAPLITH_BRIDGE_QUIET === '1') return;
+  process.stderr.write(`Maplith Bridge ${v} \u2014 docs: https://maplith.com/docs (silence this line with MAPLITH_BRIDGE_QUIET=1)\n`);
+}
+
 export interface StdioOptions {
   /** The folder to serve. */
   root: string;
@@ -161,6 +169,7 @@ export async function relayStdio(o: StdioOptions): Promise<void> {
   }
   if (stopping) return;
   log(o.started(url));
+  announce(o.version);
 
   let session: string | undefined;
   let protocol: string | undefined;
