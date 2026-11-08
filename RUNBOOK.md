@@ -40,7 +40,7 @@ the other; and, if you have the GitHub CLI, check the build attestation, which
 proves the file was built from this repository by its release workflow:
 
 ```sh
-VERSION=1.2.0-rc.1
+VERSION=1.2.0
 BASE=https://github.com/Maplith/agents/releases/download/v$VERSION
 curl -fLO $BASE/maplith-$VERSION.tgz
 curl -fLO $BASE/maplith-$VERSION.tgz.sha256

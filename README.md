@@ -28,8 +28,8 @@ in, and come straight back. Your agent then builds your first map with you.
 and writes no key anywhere:
 
 ```sh
-npx --yes maplith@1.2.0-rc.1 setup claude
-npx --yes maplith@1.2.0-rc.1 setup codex
+npx --yes maplith@1.2.0 setup claude
+npx --yes maplith@1.2.0 setup codex
 ```
 
 **Or by hand.** Claude Code:
@@ -49,7 +49,7 @@ codex mcp login maplith
 
 Codex does not pass your environment to a plugin's servers, so to share a
 folder with Codex through the Bridge, name it once:
-`npx --yes maplith@1.2.0-rc.1 setup codex --dir <folder>`.
+`npx --yes maplith@1.2.0 setup codex --dir <folder>`.
 
 Everything here is Apache-2.0.
 
@@ -84,8 +84,8 @@ how your systems fit together.
 You need Node.js 24 or newer.
 
 ```sh
-npx --yes maplith@1.2.0-rc.1 bridge rotate-token
-npx --yes maplith@1.2.0-rc.1 bridge serve --dir ./exports
+npx --yes maplith@1.2.0 bridge rotate-token
+npx --yes maplith@1.2.0 bridge serve --dir ./exports
 ```
 
 The first command writes a random token to `maplith-bridge.token`, readable
@@ -102,7 +102,7 @@ To fill the folder from PostgreSQL, under a read-only role:
 
 ```sh
 PGHOST=db.example.com PGDATABASE=shop PGUSER=bridge_reader \
-  npx --yes maplith@1.2.0-rc.1 bridge extract postgres --out ./exports --check
+  npx --yes maplith@1.2.0 bridge extract postgres --out ./exports --check
 ```
 
 `--check` verifies the role and writes nothing. Run it again without `--check`
@@ -191,11 +191,11 @@ digest of it must match the file from GitHub: the two `sha512-` lines below
 are equal.
 
 ```sh
-sha256sum -c maplith-1.2.0-rc.1.tgz.sha256
-echo "sha512-$(openssl dgst -sha512 -binary maplith-1.2.0-rc.1.tgz | openssl base64 -A)"
-npm view maplith@1.2.0-rc.1 dist.integrity
-gh attestation verify maplith-1.2.0-rc.1.tgz --repo Maplith/agents \
-  --bundle maplith-1.2.0-rc.1.tgz.sigstore.json
+sha256sum -c maplith-1.2.0.tgz.sha256
+echo "sha512-$(openssl dgst -sha512 -binary maplith-1.2.0.tgz | openssl base64 -A)"
+npm view maplith@1.2.0 dist.integrity
+gh attestation verify maplith-1.2.0.tgz --repo Maplith/agents \
+  --bundle maplith-1.2.0.tgz.sigstore.json
 ```
 
 After installing from npm, `npm audit signatures` checks the registry
@@ -222,7 +222,7 @@ An agent that starts its MCP servers as local commands, such as Claude Code,
 can start the Bridge itself:
 
 ```sh
-npx -y maplith@1.2.0-rc.1 bridge stdio --dir ./exports
+npx -y maplith@1.2.0 bridge stdio --dir ./exports
 ```
 
 `stdio` serves the folder to that one agent over its stdin and stdout: the
