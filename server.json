@@ -8,13 +8,13 @@
     "url": "https://github.com/Maplith/agents",
     "source": "github"
   },
-  "version": "1.2.0-rc.1",
+  "version": "1.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "maplith",
-      "version": "1.2.0-rc.1",
+      "version": "1.2.0",
       "runtimeHint": "npx",
       "packageArguments": [
         {

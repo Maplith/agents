@@ -25,7 +25,7 @@
     "maplith-bridge": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "maplith@1.2.0-rc.1", "bridge", "stdio"],
+      "args": ["-y", "maplith@1.2.0", "bridge", "stdio"],
       "env": {
         "EXPORT_DIR": "${MAPLITH_BRIDGE_DIR:-}"
       }

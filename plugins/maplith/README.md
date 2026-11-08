@@ -17,8 +17,8 @@ and come straight back. Your agent then builds your first map with you.
 With Node.js 24 or newer:
 
 ```sh
-npx --yes maplith@1.2.0-rc.1 setup claude
-npx --yes maplith@1.2.0-rc.1 setup codex
+npx --yes maplith@1.2.0 setup claude
+npx --yes maplith@1.2.0 setup codex
 ```
 
 It runs your agent's own commands, shown below, and writes no key anywhere.
@@ -46,7 +46,7 @@ codex mcp login maplith
 
 The last command opens Maplith's sign-in and consent page in your browser.
 Codex does not pass your environment to a plugin's servers, so name the
-Bridge's folder once with `npx --yes maplith@1.2.0-rc.1 setup codex --dir
+Bridge's folder once with `npx --yes maplith@1.2.0 setup codex --dir
 <folder>`; without one the Bridge serves an empty folder.
 
 ## What the plugin adds

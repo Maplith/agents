@@ -6,6 +6,11 @@ follows [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-08
+
+The first stable release of the package `maplith` (Maplith Bridge). It is
+1.2.0-rc.1 unchanged, plus:
+
 ### Added
 
 - A `NOTICE` file, and a "Powered by Maplith Bridge" badge you can add to your own site or docs.
@@ -157,7 +162,8 @@ The first public release candidate.
 The first version: the read-only MCP server (`serve`), the PostgreSQL
 extractor (`extract postgres`), and `rotate-token`.
 
-[Unreleased]: https://github.com/Maplith/agents/compare/v1.2.0-rc.1...HEAD
+[Unreleased]: https://github.com/Maplith/agents/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Maplith/agents/releases/tag/v1.2.0
 [1.2.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.2.0-rc.1
 [1.1.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.1.0-rc.1
 [1.0.0-rc.1]: https://github.com/Maplith/agents/releases/tag/v1.0.0-rc.1
