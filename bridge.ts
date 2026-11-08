@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import type { Server } from 'node:http';
 import { isLoopback, serve } from './serve.ts';
 import { runCli as runExtract } from './extract-postgres.ts';
-import { relayStdio } from './stdio.ts';
+import { announce, relayStdio } from './stdio.ts';
 
 /** Maplith Bridge: one command for the side that holds the data.
  *
@@ -484,6 +484,7 @@ async function serveCommand(argv: readonly string[], env: Env, io: Io, cwd: stri
   );
   const link = workspace ? INTEGRATIONS_URL.replace('<workspace>', workspace) : INTEGRATIONS_URL;
   const how = tls ? 'HTTPS in the Bridge' : behindProxy ? 'plain HTTP to the proxy that ends TLS in front of it' : 'plain HTTP, this machine only';
+  announce(v, env);
   io.stdout(`Maplith Bridge ${v}`);
   io.stdout(`Serving ${servedDir} read-only at ${url} (${how}).`);
   io.stdout(`The token is in ${tokenFile}. It is not printed: copy it from that file. Rotate it with: ${program()} rotate-token --token-file ${tokenFile}`);

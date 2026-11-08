@@ -53,6 +53,9 @@ folder with Codex through the Bridge, name it once:
 
 Everything here is Apache-2.0.
 
+Maplith Bridge (npm: `maplith`, with the command `maplith-bridge` as an alias) lives in the
+Maplith/agents repository.
+
 # Maplith Bridge
 
 Connect your database to your AI agent, read-only, without giving anyone your
@@ -138,6 +141,25 @@ and its numbers describe that run only: a restore into a fresh server can give
 the same relation ids again, and it renumbers the attribute numbers.
 
 Run any command with `--help` for every option.
+
+## Powered by Maplith Bridge
+
+If you use Maplith Bridge, you are welcome to add this badge to your own site
+or docs.
+
+![Powered by Maplith Bridge](assets/powered-by-maplith-bridge.svg)
+
+HTML:
+
+```html
+<a href="https://maplith.com"><img src="https://raw.githubusercontent.com/Maplith/agents/main/assets/powered-by-maplith-bridge.svg" alt="Powered by Maplith Bridge" width="196" height="28"></a>
+```
+
+Markdown:
+
+```md
+[![Powered by Maplith Bridge](https://raw.githubusercontent.com/Maplith/agents/main/assets/powered-by-maplith-bridge.svg)](https://maplith.com)
+```
 
 ## Set it up for real
 

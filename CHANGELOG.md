@@ -6,6 +6,11 @@ follows [semantic versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- A `NOTICE` file, and a "Powered by Maplith Bridge" badge you can add to your own site or docs.
+- The Bridge prints one line on stderr when it starts, pointing to https://maplith.com/docs. Set `MAPLITH_BRIDGE_QUIET=1` to silence it.
+
 ## [1.2.0-rc.1] - 2026-10-22
 
 The package is now called `maplith`, with one command, `maplith`. Maplith
