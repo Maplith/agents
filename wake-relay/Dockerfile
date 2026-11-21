@@ -1,5 +1,5 @@
 # The wake relay has no dependencies: copy the sources and run them.
-FROM node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d
+FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json relay.config.json ./
